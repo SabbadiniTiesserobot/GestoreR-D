@@ -7,9 +7,9 @@
 
 <!-- Prototipo temporaneo del modulo «Laser Servo-Robot» di App gestione R&D.
      Una sola pagina, nessun server: i dati stanno nel browser di questo dispositivo
-     (localStorage) e, se si collega OneDrive, anche in un file sul proprio OneDrive,
-     che tiene allineati telefono e PC. L'esporta/importa in fondo resta come copia
-     di sicurezza a mano. -->
+     (localStorage) e in un file sul proprio OneDrive, che tiene allineati telefono e
+     PC. Senza OneDrive collegato l'app non si usa: mostra solo il pulsante per
+     collegarlo. L'esporta/importa in fondo resta come copia di sicurezza a mano. -->
 
 <meta name="theme-color" content="#12151a" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
@@ -62,7 +62,54 @@ header {
            10px max(16px, env(safe-area-inset-left));
 }
 .testata { max-width: 1000px; margin: 0 auto; }
-.riga-titolo { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.riga-titolo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ─────────────────────────────── l'icona di OneDrive
+   Una nuvola con un distintivo: spunta verde sincronizzato, frecce che girano mentre
+   sincronizza, punto esclamativo arancione se qualcosa non va, trattino grigio senza
+   rete, croce rossa se OneDrive non è collegato. */
+:root { --nuvola: #0364b8; --ok: #13a10e; --sync: #0f6cbd; }
+@media (prefers-color-scheme: dark) { :root { --nuvola: #4aa3f0; --ok: #3fc23a; --sync: #4aa3f0; } }
+.od-icona {
+  flex: none; width: 40px; height: 40px; padding: 4px; margin: -6px 0 -6px -6px;
+  border: 0; background: none; border-radius: 8px;
+}
+.od-icona:hover { background: var(--panel); }
+.od-icona svg { width: 32px; height: 32px; display: block; overflow: visible; }
+.od-icona .nuvola { fill: var(--nuvola); }
+.od-icona .distintivo circle { stroke: var(--bar); stroke-width: 1.4; }
+.od-icona .segno { fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: none; }
+.od-icona .freccia { fill: #fff; }
+.od-icona[data-stato="ok"] circle { fill: var(--ok); }
+.od-icona[data-stato="ok"] .s-ok { display: inline; }
+.od-icona[data-stato="sync"] circle { fill: var(--sync); }
+.od-icona[data-stato="sync"] .s-sync { display: inline; }
+.od-icona[data-stato="errore"] circle { fill: var(--warn); }
+.od-icona[data-stato="errore"] .s-errore { display: inline; }
+.od-icona[data-stato="offline"] .nuvola,
+.od-icona[data-stato="scollegato"] .nuvola { fill: var(--faint); }
+.od-icona[data-stato="offline"] circle { fill: var(--muted); }
+.od-icona[data-stato="offline"] .s-offline { display: inline; }
+.od-icona[data-stato="scollegato"] circle { fill: var(--danger); }
+.od-icona[data-stato="scollegato"] .s-no { display: inline; }
+.s-sync { transform-box: view-box; transform-origin: 18.6px 18px; animation: gira 1.1s linear infinite; }
+@keyframes gira { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .s-sync { animation: none; } }
+
+/* Senza OneDrive c'è solo la schermata per collegarlo. */
+body.scollegato main, body.scollegato .aggiungi,
+body.scollegato .cerca, body.scollegato .conti { display: none; }
+.accesso { max-width: 420px; margin: 12vh auto 0; padding: 0 16px; text-align: center; color: var(--muted); }
+.accesso .od-icona { width: 88px; height: 88px; margin: 0 auto 12px; pointer-events: none; }
+.accesso .od-icona svg { width: 80px; height: 80px; }
+.accesso h2 { margin: 0 0 6px; font-size: 18px; color: var(--text-strong); }
+.accesso p { margin: 0 0 18px; }
+.accesso .errore-sinc { color: var(--danger); }
+.pannello-od .riga-stato { margin-bottom: 4px; }
+.pannello-od .file { font-size: 13px; color: var(--muted); }
+.pannello-od .ok { color: var(--ok); }
+.pannello-od .errore-sinc { color: var(--danger); }
+.pannello-od .avviso { color: var(--warn); }
 h1 { margin: 0; font-size: 19px; font-weight: 600; color: var(--text-strong); }
 .sopratitolo { font-size: 12px; color: var(--faint); letter-spacing: .02em; }
 .conti { font-size: 13px; color: var(--muted); margin-top: 2px; }
@@ -149,9 +196,6 @@ th.c-foto { text-align: center; }
 }
 .dati .avviso { color: var(--warn); }
 .dati .pulsanti { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.dati .onedrive { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.dati .ok { color: var(--accent); }
-.dati .errore-sinc { color: var(--danger); }
 
 /* ─────────────────────────────── pulsanti */
 button, .pulsante {
@@ -236,6 +280,23 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 <header>
   <div class="testata">
     <div class="riga-titolo">
+      <button type="button" class="od-icona" id="od-icona" data-stato="scollegato"
+              aria-label="OneDrive" title="OneDrive">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="nuvola" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A6 6 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+        <g class="distintivo">
+          <circle cx="18.6" cy="18" r="5.4"/>
+          <path class="segno s-ok" d="M16.2 18.1l1.6 1.6 3.1-3.3"/>
+          <path class="segno s-no" d="M16.8 16.2l3.6 3.6M20.4 16.2l-3.6 3.6"/>
+          <path class="segno s-errore" d="M18.6 15.4v3.1M18.6 20.6v.05"/>
+          <path class="segno s-offline" d="M16.4 18h4.4"/>
+          <g class="segno s-sync">
+            <path d="M21.3 17.1a2.9 2.9 0 0 0-5.1-.9M15.9 18.9a2.9 2.9 0 0 0 5.1.9"/>
+            <path class="freccia" stroke="none" d="M15.4 14.9l.2 2.3 2.2-.7zM21.8 21.1l-.2-2.3-2.2.7z"/>
+          </g>
+        </g>
+      </svg>
+      </button>
       <h1>Laser Servo-Robot</h1>
       <span class="sopratitolo">App gestione R&amp;D · prototipo</span>
     </div>
@@ -267,18 +328,44 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
       <label class="pulsante" for="importa-file">Importa…</label>
       <input type="file" id="importa-file" accept="application/json,.json" hidden>
     </div>
-
-    <div class="onedrive">
-      <h2>OneDrive</h2>
-      <div id="stato-onedrive"></div>
-      <div class="pulsanti">
-        <button type="button" id="od-collega" hidden>Collega OneDrive</button>
-        <button type="button" id="od-sincronizza" hidden>Sincronizza ora</button>
-        <button type="button" id="od-scollega" hidden>Scollega</button>
-      </div>
-    </div>
   </section>
 </main>
+
+<section class="accesso" id="accesso" hidden>
+  <div class="od-icona" data-stato="scollegato">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path class="nuvola" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A6 6 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+        <g class="distintivo">
+          <circle cx="18.6" cy="18" r="5.4"/>
+          <path class="segno s-ok" d="M16.2 18.1l1.6 1.6 3.1-3.3"/>
+          <path class="segno s-no" d="M16.8 16.2l3.6 3.6M20.4 16.2l-3.6 3.6"/>
+          <path class="segno s-errore" d="M18.6 15.4v3.1M18.6 20.6v.05"/>
+          <path class="segno s-offline" d="M16.4 18h4.4"/>
+          <g class="segno s-sync">
+            <path d="M21.3 17.1a2.9 2.9 0 0 0-5.1-.9M15.9 18.9a2.9 2.9 0 0 0 5.1.9"/>
+            <path class="freccia" stroke="none" d="M15.4 14.9l.2 2.3 2.2-.7zM21.8 21.1l-.2-2.3-2.2.7z"/>
+          </g>
+        </g>
+      </svg>
+  </div>
+  <h2>Collega OneDrive</h2>
+  <p id="accesso-testo">I laser si salvano su OneDrive, così li ritrovi su telefono e PC.
+     Collegalo per usare l'app.</p>
+  <button type="button" class="primario" id="od-collega">Collega OneDrive</button>
+</section>
+
+<dialog id="pannello-od" class="pannello-od" aria-labelledby="titolo-od">
+  <form method="dialog">
+    <h2 id="titolo-od">OneDrive</h2>
+    <div id="stato-onedrive"></div>
+    <div class="azioni">
+      <button type="button" class="pericolo" id="od-scollega">Scollega</button>
+      <span class="spazio"></span>
+      <button type="submit">Chiudi</button>
+      <button type="button" class="primario" id="od-sincronizza">Sincronizza ora</button>
+    </div>
+  </form>
+</dialog>
 
 <button type="button" class="aggiungi" id="aggiungi" aria-label="Aggiungi un laser" title="Aggiungi un laser">+</button>
 
@@ -626,8 +713,8 @@ $('elimina').addEventListener('click', () => {
 
 // ════════════════════════════════════════════════ esporta e importa
 //
-// Senza OneDrive collegato, questa è l'unica copia di sicurezza. Su iPhone
-// «Esporta» apre il foglio di condivisione, da cui si salva in File.
+// Una copia a mano, oltre a quella su OneDrive. Su iPhone «Esporta» apre il foglio
+// di condivisione, da cui si salva in File.
 
 function disegnaStatoDati() {
   const stato = $('stato-dati');
@@ -640,22 +727,8 @@ function disegnaStatoDati() {
     ? new Date(ultima).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  stato.append(onedrive.collegato()
-    ? 'I dati stanno in questo browser e su OneDrive. '
-    : 'I dati stanno solo in questo browser, su questo dispositivo. ');
-
-  const riga = document.createElement('span');
-  if (quando) {
-    riga.textContent = `Ultima copia esportata: ${quando}.`;
-  } else if (onedrive.collegato()) {
-    riga.textContent = '';
-  } else if (dati.laser.length > 0) {
-    riga.className = 'avviso';
-    riga.textContent = 'Non hai ancora esportato una copia.';
-  } else {
-    riga.textContent = 'Esporta una copia ogni tanto per non perderli.';
-  }
-  stato.append(riga);
+  stato.append('I dati stanno su OneDrive e in questo dispositivo. ',
+    quando ? `Ultima copia esportata a mano: ${quando}.` : 'Qui puoi farne anche una copia a mano.');
 
   onedrive.disegna();
 }
@@ -812,6 +885,7 @@ const onedrive = (() => {
   let ancora = false;    // un'altra sincronizzazione chiesta mentre ne girava una
   let timer = null;
   let modifiche = 0;     // contatore: dice se durante l'invio è cambiato qualcosa
+  let inAccesso = new URLSearchParams(location.search).has('code');   // di ritorno dal login
 
   const configurato = () => !!ONEDRIVE_CONFIG.clientId;
   const leggi = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
@@ -926,8 +1000,9 @@ const onedrive = (() => {
     scrivi(CHIAVE_ATTESA, null);
     scrivi(CHIAVE_ULTIMA, null);
     stato = 'fermo';
+    erroreTesto = '';
     disegnaStatoDati();
-    mostraMessaggio('OneDrive scollegato. I dati restano su questo dispositivo.');
+    mostraMessaggio('OneDrive scollegato.');
   }
 
   // ─────────────── i file
@@ -1070,46 +1145,64 @@ const onedrive = (() => {
   // ─────────────── lo stato a video
 
   function disegna_() {
-    const box = $('stato-onedrive');
-    box.replaceChildren();
-    const riga = (testo, classe) => {
-      const e = document.createElement('div');
-      if (classe) e.className = classe;
-      e.textContent = testo;
-      box.append(e);
-    };
-
     const c = collegato();
-    $('od-collega').hidden = c;
-    $('od-sincronizza').hidden = !c;
-    $('od-scollega').hidden = !c;
-    $('od-sincronizza').disabled = stato === 'in-corso';
+    const inAttesa = leggi(CHIAVE_ATTESA) === '1';
 
+    // La schermata di accesso al posto dell'app, finché OneDrive non è collegato.
+    document.body.classList.toggle('scollegato', !c);
+    $('accesso').hidden = c;
+    const accesso = $('accesso-testo');
     if (!configurato()) {
-      riga('Non ancora configurato: manca l\'ID dell\'app Microsoft (ONEDRIVE_CONFIG nel codice).', 'avviso');
+      accesso.textContent = 'Manca l\'ID dell\'app Microsoft (ONEDRIVE_CONFIG nel codice).';
+      accesso.className = 'errore-sinc';
       $('od-collega').hidden = true;
-      return;
+    } else if (inAccesso) {
+      accesso.textContent = 'Collegamento a OneDrive in corso…';
+      accesso.className = '';
+      $('od-collega').hidden = true;
+    } else {
+      accesso.textContent = erroreTesto ||
+        'I laser si salvano su OneDrive, così li ritrovi su telefono e PC. Collegalo per usare l\'app.';
+      accesso.className = erroreTesto ? 'errore-sinc' : '';
+      $('od-collega').hidden = false;
     }
-    if (!c) {
-      riga(erroreTesto || `Collega OneDrive per salvare i dati nel file «${ONEDRIVE_CONFIG.percorso}» e ritrovarli sugli altri dispositivi.`,
-        erroreTesto ? 'errore-sinc' : '');
-      return;
-    }
+    if (!c && $('pannello-od').open) $('pannello-od').close();
 
+    // L'icona in alto.
+    const icona = !c ? 'scollegato'
+      : stato === 'in-corso' || (inAttesa && stato === 'fermo') ? 'sync'
+      : stato === 'errore' ? 'errore'
+      : stato === 'offline' ? 'offline'
+      : 'ok';
     const ultima = leggi(CHIAVE_ULTIMA);
     const quando = ultima
       ? new Date(ultima).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
       : null;
-    const inAttesa = leggi(CHIAVE_ATTESA) === '1';
+    const [testo, classe] = {
+      scollegato: ['OneDrive non collegato', 'errore-sinc'],
+      sync: [stato === 'in-corso' ? 'Sincronizzazione in corso…' : 'Modifiche da inviare…', ''],
+      errore: ['Sincronizzazione non riuscita: ' + erroreTesto, 'errore-sinc'],
+      offline: ['Senza rete: le modifiche partiranno quando torna.', 'avviso'],
+      ok: [quando ? `Sincronizzato · ${quando}` : 'Sincronizzato', 'ok']
+    }[icona];
 
-    if (stato === 'in-corso') riga('Sincronizzazione in corso…');
-    else if (stato === 'errore') riga('Sincronizzazione non riuscita: ' + erroreTesto, 'errore-sinc');
-    else if (stato === 'offline') riga('Senza rete: le modifiche partiranno quando torna.', 'avviso');
-    else if (inAttesa) riga('Modifiche da inviare…');
-    else if (quando) riga(`Sincronizzato con OneDrive · ${quando}`, 'ok');
-    else riga('Collegato a OneDrive.');
+    const bottone = $('od-icona');
+    bottone.dataset.stato = icona;
+    bottone.title = testo;
+    bottone.setAttribute('aria-label', 'OneDrive: ' + testo);
 
-    riga(`File: ${ONEDRIVE_CONFIG.percorso}`);
+    // Il pannello che si apre toccando l'icona.
+    const box = $('stato-onedrive');
+    box.replaceChildren();
+    const riga = (t, cl) => {
+      const e = document.createElement('div');
+      e.className = cl;
+      e.textContent = t;
+      box.append(e);
+    };
+    riga(testo, 'riga-stato ' + classe);
+    riga(`File: ${ONEDRIVE_CONFIG.percorso}`, 'file');
+    $('od-sincronizza').disabled = stato === 'in-corso';
   }
 
   // ─────────────── avvio
@@ -1117,6 +1210,13 @@ const onedrive = (() => {
   async function avvia() {
     $('od-collega').addEventListener('click', () => collega().catch(e => mostraMessaggio(e.message)));
     $('od-sincronizza').addEventListener('click', sincronizza);
+    $('od-icona').addEventListener('click', () => {
+      if (collegato()) $('pannello-od').showModal();
+      else collega().catch(e => mostraMessaggio(e.message));
+    });
+    $('pannello-od').addEventListener('click', e => {
+      if (e.target === $('pannello-od')) $('pannello-od').close();
+    });
     $('od-scollega').addEventListener('click', () => {
       if (confirm('Scollegare OneDrive da questo dispositivo? Il file su OneDrive resta.')) scollega();
     });
@@ -1129,11 +1229,13 @@ const onedrive = (() => {
       if (document.visibilityState === 'visible') sincronizza();
     });
 
+    disegnaStatoDati();
     try {
       await completaAccesso();
     } catch (e) {
       erroreTesto = 'Accesso a OneDrive non riuscito: ' + e.message;
     }
+    inAccesso = false;
     disegnaStatoDati();
     await sincronizza();
   }
