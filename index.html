@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Laser Servo-Robot</title>
+
+<!-- Prototipo temporaneo del modulo «Laser Servo-Robot» di App gestione R&D.
+     Una sola pagina, nessun server: i dati stanno nel browser di questo dispositivo
+     (localStorage), e per non perderli c'è l'esporta/importa in fondo. La
+     sincronizzazione con OneDrive arriverà con la versione vera; il file esportato ha
+     già la forma che userà. -->
+
+<meta name="theme-color" content="#12151a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Laser">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icona-512.png">
+<link rel="apple-touch-icon" href="icona-180.png">
+
+<style>
+/* I colori sono quelli di TOKENS.md, stesse chiavi dell'app WPF: le due metà di
+   App gestione R&D devono sembrare la stessa app. */
+:root {
+  --bg: #faf9f7; --bar: #f1efeb; --panel: #ffffff; --control: #ffffff;
+  --border: #e5e1da; --border2: #ddd8cf; --control-border: #d3ccc0;
+  --text-strong: #14181d; --text: #23272e; --text2: #4b5158;
+  --muted: #6b7280; --faint: #8b9199;
+  --accent: #0f8f7d; --on-accent: #ffffff; --warn: #a8681a; --danger: #ad4257;
+  --ombra: 0 8px 30px rgba(20, 24, 29, .14);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151a; --bar: #0f1216; --panel: #171c23; --control: #1c2129;
+    --border: #1e242c; --border2: #262d36; --control-border: #2b323c;
+    --text-strong: #e4eaf1; --text: #d7dde5; --text2: #b6c0cb;
+    --muted: #8d97a3; --faint: #5d6672;
+    --accent: #5bd9c0; --on-accent: #0d1014; --warn: #d9a05b; --danger: #d97b8b;
+    --ombra: 0 8px 30px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+.mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace; }
+
+/* ─────────────────────────────── testata */
+header {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--bar); border-bottom: 1px solid var(--border);
+  padding: calc(10px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           10px max(16px, env(safe-area-inset-left));
+}
+.testata { max-width: 1000px; margin: 0 auto; }
+.riga-titolo { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h1 { margin: 0; font-size: 19px; font-weight: 600; color: var(--text-strong); }
+.sopratitolo { font-size: 12px; color: var(--faint); letter-spacing: .02em; }
+.conti { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.conti b { color: var(--text2); font-weight: 600; }
+
+.cerca {
+  margin-top: 10px; width: 100%; font: inherit; font-size: 16px;
+  padding: 9px 12px; border-radius: 8px; color: var(--text);
+  background: var(--panel); border: 1px solid var(--border2); outline: none;
+}
+.cerca:focus { border-color: var(--accent); }
+
+main { max-width: 1000px; margin: 0 auto; padding: 12px 16px 0; }
+
+/* ─────────────────────────────── la tabella
+   Sul PC è una tabella vera a quattro colonne; sotto i 640 px ogni riga diventa una
+   scheda, perché quattro colonne su 400 px lasciano due parole alle note. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; }
+thead th {
+  text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint);
+  padding: 6px 12px; border-bottom: 1px solid var(--border);
+}
+tbody tr { cursor: pointer; }
+tbody td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+tbody tr:hover td { background: var(--panel); }
+tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.c-commessa { width: 150px; color: var(--text-strong); font-weight: 600; white-space: nowrap; }
+.c-cliente { width: 28%; color: var(--text); }
+.c-note { color: var(--text2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.c-foto { width: 84px; text-align: center; }
+th.c-foto { text-align: center; }
+.vuota-cella { color: var(--faint); font-style: italic; }
+
+/* La spunta si tocca direttamente dalla lista: è l'unica cosa che si cambia spesso,
+   e aprire una scheda per mettere una spunta sarebbe tre tocchi invece di uno. */
+.spunta {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin: -10px 0; cursor: pointer;
+}
+.spunta input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.foto-testo { display: none; }
+
+@media (max-width: 640px) {
+  thead { display: none; }
+  table, tbody, tr, td { display: block; }
+  tbody tr {
+    display: grid; grid-template-columns: 1fr auto;
+    grid-template-areas: "commessa foto" "cliente foto" "note note";
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 8px; padding: 10px 6px 10px 14px;
+  }
+  tbody tr:hover td { background: none; }
+  tbody td { border: 0; padding: 0; }
+  .c-commessa { grid-area: commessa; width: auto; font-size: 15px; }
+  .c-cliente { grid-area: cliente; width: auto; font-size: 15px; }
+  .c-note { grid-area: note; font-size: 13.5px; margin-top: 4px; }
+  .c-note:empty { display: none; }
+  .c-foto {
+    grid-area: foto; width: auto; align-self: center;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .spunta { margin: 0; }
+  .foto-testo { display: block; font-size: 10.5px; color: var(--faint); margin-top: -8px; }
+}
+
+.vuoto {
+  text-align: center; color: var(--muted); padding: 48px 16px;
+  border: 1px dashed var(--border2); border-radius: 10px; margin-top: 8px;
+}
+.vuoto b { color: var(--text-strong); display: block; font-size: 16px; margin-bottom: 4px; }
+
+/* ─────────────────────────────── i dati: esporta e importa */
+.dati {
+  margin-top: 28px; padding: 14px; border-radius: 10px;
+  background: var(--bar); border: 1px solid var(--border);
+  font-size: 13px; color: var(--muted);
+}
+.dati h2 {
+  margin: 0 0 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--faint); font-weight: 600;
+}
+.dati .avviso { color: var(--warn); }
+.dati .pulsanti { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ─────────────────────────────── pulsanti */
+button, .pulsante {
+  font: inherit; font-size: 14px; cursor: pointer; border-radius: 8px;
+  padding: 9px 14px; color: var(--text2);
+  background: var(--control); border: 1px solid var(--control-border);
+  -webkit-tap-highlight-color: transparent;
+}
+button:hover, .pulsante:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.primario { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.pericolo { color: var(--danger); }
+.pericolo:hover { border-color: var(--danger); }
+
+.aggiungi {
+  position: fixed; z-index: 6;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  width: 58px; height: 58px; border-radius: 50%; padding: 0;
+  font-size: 30px; line-height: 1; font-weight: 400;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  box-shadow: var(--ombra);
+}
+
+/* ─────────────────────────────── la scheda di un laser */
+dialog {
+  width: min(520px, calc(100% - 24px)); padding: 0; border-radius: 14px;
+  border: 1px solid var(--control-border); background: var(--panel); color: var(--text);
+  box-shadow: var(--ombra);
+}
+dialog::backdrop { background: rgba(0, 0, 0, .45); }
+@media (max-width: 640px) {
+  /* Sul telefono la scheda sale dal basso: i campi restano vicini al pollice. */
+  dialog {
+    width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0;
+    border-bottom: 0; padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+dialog form { padding: 18px; }
+dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
+.campo { display: block; margin-bottom: 12px; }
+.campo span {
+  display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 4px;
+}
+.campo input, .campo textarea {
+  width: 100%; font: inherit; font-size: 16px; color: var(--text);
+  padding: 10px 12px; border-radius: 8px; outline: none;
+  background: var(--bg); border: 1px solid var(--border2);
+}
+.campo input:focus, .campo textarea:focus { border-color: var(--accent); }
+.campo textarea { min-height: 88px; resize: vertical; }
+.campo .mono { font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace; }
+.campo-foto {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border2);
+  background: var(--bg); margin-bottom: 4px;
+}
+.campo-foto input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
+.errore { color: var(--danger); font-size: 13px; min-height: 18px; margin: 6px 0 0; }
+.azioni { display: flex; gap: 8px; margin-top: 12px; }
+.azioni .spazio { flex: 1; }
+
+/* ─────────────────────────────── il messaggio che compare e se ne va */
+.messaggio {
+  position: fixed; left: 50%; z-index: 20;
+  bottom: calc(90px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(12px); opacity: 0; pointer-events: none;
+  max-width: calc(100% - 32px); padding: 10px 14px; border-radius: 10px;
+  background: var(--text-strong); color: var(--bg); font-size: 14px;
+  box-shadow: var(--ombra); transition: opacity .14s, transform .14s;
+}
+.messaggio.visibile { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.messaggio button {
+  margin-left: 10px; padding: 3px 8px; font-size: 13px; font-weight: 600;
+  background: transparent; color: var(--bg); border-color: currentColor;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="testata">
+    <div class="riga-titolo">
+      <h1>Laser Servo-Robot</h1>
+      <span class="sopratitolo">App gestione R&amp;D · prototipo</span>
+    </div>
+    <div class="conti" id="conti">—</div>
+    <input class="cerca" id="cerca" type="search" placeholder="Cerca commessa, cliente o note"
+           autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Cerca">
+  </div>
+</header>
+
+<main>
+  <table id="tabella">
+    <thead>
+      <tr>
+        <th class="c-commessa">Commessa</th>
+        <th class="c-cliente">Cliente</th>
+        <th class="c-note">Note</th>
+        <th class="c-foto">Foto</th>
+      </tr>
+    </thead>
+    <tbody id="righe"></tbody>
+  </table>
+  <div class="vuoto" id="vuoto" hidden></div>
+
+  <section class="dati" aria-labelledby="titolo-dati">
+    <h2 id="titolo-dati">Dati</h2>
+    <div id="stato-dati"></div>
+    <div class="pulsanti">
+      <button type="button" id="esporta">Esporta una copia</button>
+      <label class="pulsante" for="importa-file">Importa…</label>
+      <input type="file" id="importa-file" accept="application/json,.json" hidden>
+    </div>
+  </section>
+</main>
+
+<button type="button" class="aggiungi" id="aggiungi" aria-label="Aggiungi un laser" title="Aggiungi un laser">+</button>
+
+<dialog id="scheda" aria-labelledby="titolo-scheda">
+  <form id="modulo" method="dialog" novalidate>
+    <h2 id="titolo-scheda">Nuovo laser</h2>
+
+    <label class="campo">
+      <span>Numero commessa</span>
+      <input id="f-commessa" class="mono" autocomplete="off" autocapitalize="characters"
+             spellcheck="false" enterkeyhint="next" placeholder="es. 26045G04">
+    </label>
+
+    <label class="campo">
+      <span>Cliente</span>
+      <input id="f-cliente" autocomplete="off" autocapitalize="words" enterkeyhint="next">
+    </label>
+
+    <label class="campo">
+      <span>Note</span>
+      <textarea id="f-note" autocapitalize="sentences"></textarea>
+    </label>
+
+    <label class="campo-foto">
+      <input type="checkbox" id="f-foto">
+      <span>Foto ai componenti fatte</span>
+    </label>
+
+    <p class="errore" id="errore" role="alert"></p>
+
+    <div class="azioni">
+      <button type="button" class="pericolo" id="elimina">Elimina</button>
+      <span class="spazio"></span>
+      <button type="button" id="annulla">Annulla</button>
+      <button type="submit" class="primario" id="salva">Salva</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="messaggio" id="messaggio" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════ i dati
+//
+// Il file ha la stessa forma di quello che scriverà la versione vera su OneDrive:
+// { versione, laser: [ { id, commessa, cliente, note, foto, creato, modificato } ] }.
+// Così una copia esportata oggi si potrà importare là senza conversioni.
+
+const CHIAVE = 'rd.laser.v1';
+const CHIAVE_COPIA = 'rd.laser.ultimaCopia';
+
+const $ = id => document.getElementById(id);
+
+let dati = carica();
+
+function vuoti() {
+  return { versione: 1, laser: [] };
+}
+
+function carica() {
+  let testo = null;
+  try {
+    testo = localStorage.getItem(CHIAVE);
+    if (!testo) return vuoti();
+
+    const letti = JSON.parse(testo);
+    if (!letti || !Array.isArray(letti.laser)) throw new Error('forma sconosciuta');
+    return { versione: 1, laser: letti.laser.map(normalizza).filter(Boolean) };
+  } catch (e) {
+    // Un salvataggio illeggibile non si sovrascrive in silenzio: si mette da parte,
+    // così chi viene dopo può ancora recuperarlo.
+    if (testo) {
+      try { localStorage.setItem(CHIAVE + '.illeggibile', testo); } catch (_) {}
+    }
+    return vuoti();
+  }
+}
+
+function salva() {
+  try {
+    localStorage.setItem(CHIAVE, JSON.stringify(dati));
+    return true;
+  } catch (e) {
+    mostraMessaggio('Salvataggio non riuscito: ' + e.message);
+    return false;
+  }
+}
+
+/** Una riga letta da fuori (il browser o un file importato), ripulita. */
+function normalizza(r) {
+  if (!r || typeof r !== 'object') return null;
+  const testo = v => (typeof v === 'string' ? v : v == null ? '' : String(v)).trim();
+  const adesso = new Date().toISOString();
+
+  return {
+    id: testo(r.id) || nuovoId(),
+    commessa: testo(r.commessa),
+    cliente: testo(r.cliente),
+    note: testo(r.note),
+    foto: r.foto === true,
+    creato: testo(r.creato) || adesso,
+    modificato: testo(r.modificato) || adesso
+  };
+}
+
+function nuovoId() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+// Chiede al browser di non buttare via i dati quando manca spazio. Su iPhone vale
+// soprattutto per l'app aggiunta alla schermata Home; se dice di no si va avanti uguale.
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(() => {});
+}
+
+// ════════════════════════════════════════════════ la lista
+
+// Commessa decrescente: i numeri cominciano con l'anno (26045G04), quindi in cima
+// ci sono gli impianti più recenti. «numeric» mette 26100 dopo 26045 e non prima.
+const confronto = new Intl.Collator('it', { numeric: true, sensitivity: 'base' });
+
+function ordinati() {
+  return [...dati.laser].sort((a, b) =>
+    confronto.compare(b.commessa, a.commessa) || confronto.compare(a.cliente, b.cliente));
+}
+
+function corrisponde(laser, cerca) {
+  if (!cerca) return true;
+  return [laser.commessa, laser.cliente, laser.note]
+    .some(v => v.toLocaleLowerCase('it').includes(cerca));
+}
+
+function disegna() {
+  const cerca = $('cerca').value.trim().toLocaleLowerCase('it');
+  const tutti = dati.laser.length;
+  const visibili = ordinati().filter(l => corrisponde(l, cerca));
+
+  $('righe').replaceChildren(...visibili.map(riga));
+  $('tabella').hidden = visibili.length === 0;
+
+  const vuoto = $('vuoto');
+  vuoto.hidden = visibili.length > 0;
+  vuoto.replaceChildren();
+  if (visibili.length === 0) {
+    const titolo = document.createElement('b');
+    titolo.textContent = tutti === 0 ? 'Nessun laser registrato' : 'Nessun risultato';
+    vuoto.append(titolo, tutti === 0
+      ? 'Aggiungi il primo con il pulsante + in basso.'
+      : `Niente corrisponde a «${$('cerca').value.trim()}».`);
+  }
+
+  const fotografati = dati.laser.filter(l => l.foto).length;
+  const conti = $('conti');
+  conti.replaceChildren();
+  const b = t => { const e = document.createElement('b'); e.textContent = t; return e; };
+
+  if (cerca) {
+    conti.append(b(visibili.length), ` di ${tutti} mostrati`);
+  } else {
+    conti.append(b(tutti), tutti === 1 ? ' installato' : ' installati');
+    if (tutti > 0) conti.append(' · foto fatte ', b(fotografati), ` di ${tutti}`);
+  }
+
+  disegnaStatoDati();
+}
+
+function riga(laser) {
+  const tr = document.createElement('tr');
+  tr.tabIndex = 0;
+  tr.dataset.id = laser.id;
+
+  const cella = (classe, testo, vuota) => {
+    const td = document.createElement('td');
+    td.className = classe;
+    if (testo) td.textContent = testo;
+    else if (vuota) { td.textContent = vuota; td.classList.add('vuota-cella'); }
+    return td;
+  };
+
+  const foto = document.createElement('td');
+  foto.className = 'c-foto';
+
+  const spunta = document.createElement('label');
+  spunta.className = 'spunta';
+  spunta.title = laser.foto ? 'Foto fatte' : 'Foto da fare';
+
+  const casella = document.createElement('input');
+  casella.type = 'checkbox';
+  casella.checked = laser.foto;
+  casella.setAttribute('aria-label', `Foto ai componenti fatte, ${laser.commessa || laser.cliente}`);
+  casella.addEventListener('change', () => segnaFoto(laser.id, casella.checked));
+
+  const testoFoto = document.createElement('span');
+  testoFoto.className = 'foto-testo';
+  testoFoto.textContent = 'foto';
+
+  spunta.append(casella);
+  foto.append(spunta, testoFoto);
+
+  tr.append(
+    cella('c-commessa mono', laser.commessa, 'senza numero'),
+    cella('c-cliente', laser.cliente, 'cliente?'),
+    cella('c-note', laser.note, ''),
+    foto);
+
+  // Toccare la riga apre la scheda; toccare la spunta cambia solo la spunta.
+  tr.addEventListener('click', e => {
+    if (e.target.closest('.c-foto')) return;
+    apri(laser.id);
+  });
+  tr.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target === tr) apri(laser.id);
+  });
+
+  return tr;
+}
+
+function segnaFoto(id, fatte) {
+  const laser = dati.laser.find(l => l.id === id);
+  if (!laser) return;
+
+  laser.foto = fatte;
+  laser.modificato = new Date().toISOString();
+  salva();
+  disegna();
+}
+
+$('cerca').addEventListener('input', disegna);
+
+// ════════════════════════════════════════════════ la scheda
+
+let aperto = null;   // l'id del laser nella scheda, o null per uno nuovo
+
+function apri(id) {
+  const laser = id ? dati.laser.find(l => l.id === id) : null;
+  aperto = laser ? laser.id : null;
+
+  $('titolo-scheda').textContent = laser ? 'Modifica laser' : 'Nuovo laser';
+  $('f-commessa').value = laser ? laser.commessa : '';
+  $('f-cliente').value = laser ? laser.cliente : '';
+  $('f-note').value = laser ? laser.note : '';
+  $('f-foto').checked = laser ? laser.foto : false;
+  $('elimina').hidden = !laser;
+  $('errore').textContent = '';
+
+  $('scheda').showModal();
+
+  // Su una riga nuova si parte dalla commessa; su una esistente non si mette il
+  // fuoco da nessuna parte, altrimenti su iPhone salta fuori la tastiera sopra la
+  // scheda che si voleva solo guardare.
+  if (!laser) $('f-commessa').focus();
+}
+
+function chiudi() {
+  $('scheda').close();
+  aperto = null;
+}
+
+$('aggiungi').addEventListener('click', () => apri(null));
+$('annulla').addEventListener('click', chiudi);
+
+// Toccare fuori dalla scheda la chiude, come ci si aspetta su un telefono.
+$('scheda').addEventListener('click', e => {
+  if (e.target === $('scheda')) chiudi();
+});
+
+// Invio sul campo commessa porta al cliente invece di salvare a metà.
+$('f-commessa').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('f-cliente').focus(); }
+});
+
+$('modulo').addEventListener('submit', e => {
+  e.preventDefault();
+
+  const valori = {
+    commessa: $('f-commessa').value.trim(),
+    cliente: $('f-cliente').value.trim(),
+    note: $('f-note').value.trim(),
+    foto: $('f-foto').checked
+  };
+
+  if (!valori.commessa && !valori.cliente) {
+    $('errore').textContent = 'Serve almeno il numero di commessa o il cliente.';
+    $('f-commessa').focus();
+    return;
+  }
+
+  const adesso = new Date().toISOString();
+  const esistente = aperto && dati.laser.find(l => l.id === aperto);
+
+  if (esistente) {
+    Object.assign(esistente, valori, { modificato: adesso });
+  } else {
+    dati.laser.push({ id: nuovoId(), ...valori, creato: adesso, modificato: adesso });
+  }
+
+  salva();
+  chiudi();
+  disegna();
+  mostraMessaggio(esistente ? 'Modifiche salvate.' : 'Laser aggiunto.');
+});
+
+// Eliminare non chiede conferma: si può annullare dal messaggio che compare, che è
+// più rapido di un «sei sicuro?» e protegge lo stesso dal tocco sbagliato.
+$('elimina').addEventListener('click', () => {
+  const indice = dati.laser.findIndex(l => l.id === aperto);
+  if (indice < 0) return;
+
+  const [tolto] = dati.laser.splice(indice, 1);
+  salva();
+  chiudi();
+  disegna();
+
+  mostraMessaggio(`Eliminato ${tolto.commessa || tolto.cliente}.`, 'Annulla', () => {
+    dati.laser.push(tolto);
+    salva();
+    disegna();
+  });
+});
+
+// ════════════════════════════════════════════════ esporta e importa
+//
+// Finché non c'è la sincronizzazione, questa è l'unica copia di sicurezza. Su iPhone
+// «Esporta» apre il foglio di condivisione, da cui si salva in File o su OneDrive.
+
+function disegnaStatoDati() {
+  const stato = $('stato-dati');
+  stato.replaceChildren();
+
+  let ultima = null;
+  try { ultima = localStorage.getItem(CHIAVE_COPIA); } catch (_) {}
+
+  const quando = ultima
+    ? new Date(ultima).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+
+  stato.append('I dati stanno solo in questo browser, su questo dispositivo. ');
+  const riga = document.createElement('span');
+  if (!quando && dati.laser.length > 0) {
+    riga.className = 'avviso';
+    riga.textContent = 'Non hai ancora esportato una copia.';
+  } else if (quando) {
+    riga.textContent = `Ultima copia esportata: ${quando}.`;
+  } else {
+    riga.textContent = 'Esporta una copia ogni tanto per non perderli.';
+  }
+  stato.append(riga);
+}
+
+$('esporta').addEventListener('click', async () => {
+  const oggi = new Date().toISOString().slice(0, 10);
+  const nome = `laser_servo_robot_${oggi}.json`;
+  const testo = JSON.stringify(dati, null, 2);
+  const file = new File([testo], nome, { type: 'application/json' });
+
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Laser Servo-Robot' });
+    } else {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nome;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  } catch (e) {
+    // Chiudere il foglio di condivisione non è un errore.
+    if (e && e.name === 'AbortError') return;
+    mostraMessaggio('Esportazione non riuscita: ' + e.message);
+    return;
+  }
+
+  try { localStorage.setItem(CHIAVE_COPIA, new Date().toISOString()); } catch (_) {}
+  disegnaStatoDati();
+  mostraMessaggio(`Copia esportata: ${dati.laser.length} laser.`);
+});
+
+$('importa-file').addEventListener('change', async e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+
+  let letti;
+  try {
+    const contenuto = JSON.parse(await file.text());
+    if (!contenuto || !Array.isArray(contenuto.laser)) throw new Error('non è un file dei laser');
+    letti = contenuto.laser.map(normalizza).filter(Boolean);
+  } catch (errore) {
+    mostraMessaggio('File non valido: ' + errore.message);
+    return;
+  }
+
+  const attuali = dati.laser.length;
+  const domanda = attuali === 0
+    ? `Importare ${letti.length} laser?`
+    : `Sostituire i ${attuali} laser di questo dispositivo con i ${letti.length} del file?`;
+  if (!confirm(domanda)) return;
+
+  const prima = dati;
+  dati = { versione: 1, laser: letti };
+  salva();
+  disegna();
+
+  mostraMessaggio(`Importati ${letti.length} laser.`, 'Annulla', () => {
+    dati = prima;
+    salva();
+    disegna();
+  });
+});
+
+// ════════════════════════════════════════════════ il messaggio
+
+let timerMessaggio = null;
+
+function mostraMessaggio(testo, azione, seAzione) {
+  const m = $('messaggio');
+  m.replaceChildren(testo);
+
+  if (azione) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = azione;
+    b.addEventListener('click', () => {
+      nascondiMessaggio();
+      seAzione();
+    });
+    m.append(b);
+  }
+
+  m.classList.add('visibile');
+  clearTimeout(timerMessaggio);
+  timerMessaggio = setTimeout(nascondiMessaggio, azione ? 6000 : 2400);
+}
+
+function nascondiMessaggio() {
+  $('messaggio').classList.remove('visibile');
+}
+
+// Se il dato cambia in un'altra scheda dello stesso browser, questa si aggiorna.
+window.addEventListener('storage', e => {
+  if (e.key === CHIAVE) { dati = carica(); disegna(); }
+});
+
+disegna();
+
+// ════════════════════════════════════════════════ offline
+//
+// Il service worker tiene in cache la pagina, così l'app si apre anche senza rete.
+// Funziona solo su https (GitHub Pages) o su localhost: aprendo il file dal disco
+// semplicemente non parte, e la pagina funziona lo stesso.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
