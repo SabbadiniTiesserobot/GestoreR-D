@@ -11,11 +11,14 @@
      PC. Senza OneDrive collegato l'app non si usa: mostra solo il pulsante per
      collegarlo. L'esporta/importa in fondo resta come copia di sicurezza a mano. -->
 
-<meta name="theme-color" content="#12151a" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
+<!-- Stesso colore della testata (--bar), così la barra di stato ne sembra la continuazione. -->
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f1efeb" media="(prefers-color-scheme: light)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- «default» e non «black-translucent»: con la pagina sotto la barra di stato, iOS
+     sfoca quella fascia e la sfocatura arriva fino al titolo. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Gestione R&amp;D">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icona-rd-512.png">
