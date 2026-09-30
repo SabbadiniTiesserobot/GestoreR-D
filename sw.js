@@ -4,7 +4,7 @@
 // I dati non passano di qui: stanno in localStorage, e la sincronizzazione con
 // OneDrive va verso altri domini, che questo service worker lascia stare.
 
-const CACHE = 'laser-v2';
+const CACHE = 'laser-v3';
 const FILE = ['./', 'index.html', 'manifest.webmanifest', 'icona-180.png', 'icona-512.png'];
 
 self.addEventListener('install', e => {
