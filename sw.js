@@ -4,8 +4,8 @@
 // I dati non passano di qui: stanno in localStorage, e la sincronizzazione con
 // OneDrive va verso altri domini, che questo service worker lascia stare.
 
-const CACHE = 'laser-v4';
-const FILE = ['./', 'index.html', 'manifest.webmanifest', 'icona-180.png', 'icona-512.png'];
+const CACHE = 'laser-v5';
+const FILE = ['./', 'index.html', 'manifest.webmanifest', 'icona-rd-180.png', 'icona-rd-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILE)).then(() => self.skipWaiting()));
@@ -21,8 +21,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
 
+  // «no-cache» chiede sempre al server se il file è cambiato: senza, il browser
+  // potrebbe rispondere con la sua copia dei 10 minuti di GitHub Pages.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(risposta => {
         const copia = risposta.clone();
         caches.open(CACHE).then(c => c.put(e.request, copia));
