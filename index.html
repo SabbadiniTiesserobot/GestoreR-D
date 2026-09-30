@@ -7,9 +7,9 @@
 
 <!-- Prototipo temporaneo del modulo «Laser Servo-Robot» di App gestione R&D.
      Una sola pagina, nessun server: i dati stanno nel browser di questo dispositivo
-     (localStorage), e per non perderli c'è l'esporta/importa in fondo. La
-     sincronizzazione con OneDrive arriverà con la versione vera; il file esportato ha
-     già la forma che userà. -->
+     (localStorage) e, se si collega OneDrive, anche in un file sul proprio OneDrive,
+     che tiene allineati telefono e PC. L'esporta/importa in fondo resta come copia
+     di sicurezza a mano. -->
 
 <meta name="theme-color" content="#12151a" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
@@ -149,6 +149,9 @@ th.c-foto { text-align: center; }
 }
 .dati .avviso { color: var(--warn); }
 .dati .pulsanti { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.dati .onedrive { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.dati .ok { color: var(--accent); }
+.dati .errore-sinc { color: var(--danger); }
 
 /* ─────────────────────────────── pulsanti */
 button, .pulsante {
@@ -264,6 +267,16 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
       <label class="pulsante" for="importa-file">Importa…</label>
       <input type="file" id="importa-file" accept="application/json,.json" hidden>
     </div>
+
+    <div class="onedrive">
+      <h2>OneDrive</h2>
+      <div id="stato-onedrive"></div>
+      <div class="pulsanti">
+        <button type="button" id="od-collega" hidden>Collega OneDrive</button>
+        <button type="button" id="od-sincronizza" hidden>Sincronizza ora</button>
+        <button type="button" id="od-scollega" hidden>Scollega</button>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -312,9 +325,11 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 
 // ════════════════════════════════════════════════ i dati
 //
-// Il file ha la stessa forma di quello che scriverà la versione vera su OneDrive:
-// { versione, laser: [ { id, commessa, cliente, note, foto, creato, modificato } ] }.
-// Così una copia esportata oggi si potrà importare là senza conversioni.
+// Il file ha la stessa forma di quello che sta su OneDrive:
+// { versione, laser: [ { id, commessa, cliente, note, foto, creato, modificato } ],
+//   eliminati: [ { id, quando } ] }.
+// «eliminati» serve alla sincronizzazione: senza, un laser tolto sul telefono
+// tornerebbe indietro dal PC che ce l'ha ancora.
 
 const CHIAVE = 'rd.laser.v1';
 const CHIAVE_COPIA = 'rd.laser.ultimaCopia';
@@ -324,7 +339,19 @@ const $ = id => document.getElementById(id);
 let dati = carica();
 
 function vuoti() {
-  return { versione: 1, laser: [] };
+  return { versione: 1, laser: [], eliminati: [] };
+}
+
+/** Il contenuto di un file (di questo browser, importato o di OneDrive), ripulito. */
+function leggiContenuto(letti) {
+  if (!letti || !Array.isArray(letti.laser)) throw new Error('non è un file dei laser');
+  return {
+    versione: 1,
+    laser: letti.laser.map(normalizza).filter(Boolean),
+    eliminati: (Array.isArray(letti.eliminati) ? letti.eliminati : [])
+      .filter(t => t && typeof t.id === 'string' && typeof t.quando === 'string')
+      .map(t => ({ id: t.id, quando: t.quando }))
+  };
 }
 
 function carica() {
@@ -333,9 +360,7 @@ function carica() {
     testo = localStorage.getItem(CHIAVE);
     if (!testo) return vuoti();
 
-    const letti = JSON.parse(testo);
-    if (!letti || !Array.isArray(letti.laser)) throw new Error('forma sconosciuta');
-    return { versione: 1, laser: letti.laser.map(normalizza).filter(Boolean) };
+    return leggiContenuto(JSON.parse(testo));
   } catch (e) {
     // Un salvataggio illeggibile non si sovrascrive in silenzio: si mette da parte,
     // così chi viene dopo può ancora recuperarlo.
@@ -346,7 +371,14 @@ function carica() {
   }
 }
 
+/** Salva una modifica fatta qui e la manda anche a OneDrive, se collegato. */
 function salva() {
+  if (!salvaLocale()) return false;
+  onedrive.modificato();
+  return true;
+}
+
+function salvaLocale() {
   try {
     localStorage.setItem(CHIAVE, JSON.stringify(dati));
     return true;
@@ -578,12 +610,15 @@ $('elimina').addEventListener('click', () => {
   if (indice < 0) return;
 
   const [tolto] = dati.laser.splice(indice, 1);
+  dati.eliminati.push({ id: tolto.id, quando: new Date().toISOString() });
   salva();
   chiudi();
   disegna();
 
   mostraMessaggio(`Eliminato ${tolto.commessa || tolto.cliente}.`, 'Annulla', () => {
-    dati.laser.push(tolto);
+    // Più recente dell'eliminazione, così vince anche se è già arrivata su OneDrive.
+    dati.eliminati = dati.eliminati.filter(t => t.id !== tolto.id);
+    dati.laser.push({ ...tolto, modificato: new Date().toISOString() });
     salva();
     disegna();
   });
@@ -591,8 +626,8 @@ $('elimina').addEventListener('click', () => {
 
 // ════════════════════════════════════════════════ esporta e importa
 //
-// Finché non c'è la sincronizzazione, questa è l'unica copia di sicurezza. Su iPhone
-// «Esporta» apre il foglio di condivisione, da cui si salva in File o su OneDrive.
+// Senza OneDrive collegato, questa è l'unica copia di sicurezza. Su iPhone
+// «Esporta» apre il foglio di condivisione, da cui si salva in File.
 
 function disegnaStatoDati() {
   const stato = $('stato-dati');
@@ -605,17 +640,24 @@ function disegnaStatoDati() {
     ? new Date(ultima).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  stato.append('I dati stanno solo in questo browser, su questo dispositivo. ');
+  stato.append(onedrive.collegato()
+    ? 'I dati stanno in questo browser e su OneDrive. '
+    : 'I dati stanno solo in questo browser, su questo dispositivo. ');
+
   const riga = document.createElement('span');
-  if (!quando && dati.laser.length > 0) {
+  if (quando) {
+    riga.textContent = `Ultima copia esportata: ${quando}.`;
+  } else if (onedrive.collegato()) {
+    riga.textContent = '';
+  } else if (dati.laser.length > 0) {
     riga.className = 'avviso';
     riga.textContent = 'Non hai ancora esportato una copia.';
-  } else if (quando) {
-    riga.textContent = `Ultima copia esportata: ${quando}.`;
   } else {
     riga.textContent = 'Esporta una copia ogni tanto per non perderli.';
   }
   stato.append(riga);
+
+  onedrive.disegna();
 }
 
 $('esporta').addEventListener('click', async () => {
@@ -656,9 +698,7 @@ $('importa-file').addEventListener('change', async e => {
 
   let letti;
   try {
-    const contenuto = JSON.parse(await file.text());
-    if (!contenuto || !Array.isArray(contenuto.laser)) throw new Error('non è un file dei laser');
-    letti = contenuto.laser.map(normalizza).filter(Boolean);
+    letti = leggiContenuto(JSON.parse(await file.text())).laser;
   } catch (errore) {
     mostraMessaggio('File non valido: ' + errore.message);
     return;
@@ -670,13 +710,33 @@ $('importa-file').addEventListener('change', async e => {
     : `Sostituire i ${attuali} laser di questo dispositivo con i ${letti.length} del file?`;
   if (!confirm(domanda)) return;
 
+  // Importare sostituisce tutto, anche su OneDrive: quelli che non sono nel file
+  // diventano eliminati, e quelli del file risultano più recenti di ciò che c'è là.
   const prima = dati;
-  dati = { versione: 1, laser: letti };
+  const adesso = new Date().toISOString();
+  const nelFile = new Set(letti.map(l => l.id));
+  dati = {
+    versione: 1,
+    laser: letti.map(l => ({ ...l, modificato: adesso })),
+    eliminati: [
+      ...prima.eliminati.filter(t => !nelFile.has(t.id)),
+      ...prima.laser.filter(l => !nelFile.has(l.id)).map(l => ({ id: l.id, quando: adesso }))
+    ]
+  };
   salva();
   disegna();
 
   mostraMessaggio(`Importati ${letti.length} laser.`, 'Annulla', () => {
-    dati = prima;
+    const tornati = new Set(prima.laser.map(l => l.id));
+    const ora = new Date().toISOString();
+    dati = {
+      versione: 1,
+      laser: prima.laser.map(l => ({ ...l, modificato: ora })),
+      eliminati: [
+        ...prima.eliminati.filter(t => !tornati.has(t.id)),
+        ...letti.filter(l => !tornati.has(l.id)).map(l => ({ id: l.id, quando: ora }))
+      ]
+    };
     salva();
     disegna();
   });
@@ -710,12 +770,384 @@ function nascondiMessaggio() {
   $('messaggio').classList.remove('visibile');
 }
 
+// ════════════════════════════════════════════════ OneDrive
+//
+// I dati si tengono anche in un file JSON sul OneDrive di chi si collega, così
+// telefono e PC vedono gli stessi laser. Nessuna libreria: l'accesso è il flusso
+// OAuth «authorization code + PKCE» di Microsoft, fatto a mano, e i file passano
+// da Microsoft Graph.
+//
+// Per farlo funzionare serve un'app registrata su Microsoft Entra (portal.azure.com →
+// Registrazioni app → Nuova registrazione):
+//   · Piattaforma «Applicazione a pagina singola» (SPA), con URI di reindirizzamento
+//     l'indirizzo esatto di questa pagina (es. https://utente.github.io/GestoreR-D/).
+//   · Autorizzazioni delegate Microsoft Graph: Files.ReadWrite e offline_access.
+// L'«ID applicazione (client)» va in ONEDRIVE_CONFIG.clientId qui sotto.
+//
+// La sincronizzazione unisce i due lati laser per laser: di ogni id vince la versione
+// con «modificato» più recente, e un'eliminazione vince sulle versioni più vecchie
+// di lei. Due dispositivi che scrivono insieme non si pestano: il file si riscrive
+// solo se su OneDrive è ancora quello appena letto (If-Match), altrimenti si rilegge.
+
+const ONEDRIVE_CONFIG = {
+  clientId: '',
+  // «common» accetta sia account aziendali (Microsoft 365) sia personali; con il solo
+  // tenant aziendale si può mettere qui il suo id o dominio.
+  autorita: 'https://login.microsoftonline.com/common',
+  ambiti: 'Files.ReadWrite offline_access',
+  percorso: 'App gestione R&D/laser_servo_robot.json'
+};
+
+const onedrive = (() => {
+  const CHIAVE_TOKEN = 'rd.onedrive.token';
+  const CHIAVE_ACCESSO = 'rd.onedrive.accesso';     // verifier e state durante il login
+  const CHIAVE_ATTESA = 'rd.onedrive.inAttesa';     // modifiche non ancora inviate
+  const CHIAVE_ULTIMA = 'rd.onedrive.ultima';
+  const GRAPH = 'https://graph.microsoft.com/v1.0';
+  const TIENI_ELIMINATI_GIORNI = 180;
+
+  let stato = 'fermo';   // fermo | in-corso | errore | offline
+  let erroreTesto = '';
+  let inCorso = null;
+  let ancora = false;    // un'altra sincronizzazione chiesta mentre ne girava una
+  let timer = null;
+  let modifiche = 0;     // contatore: dice se durante l'invio è cambiato qualcosa
+
+  const configurato = () => !!ONEDRIVE_CONFIG.clientId;
+  const leggi = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+  const scrivi = (k, v) => {
+    try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
+  };
+  const token = () => { try { return JSON.parse(leggi(CHIAVE_TOKEN)); } catch (_) { return null; } };
+  const collegato = () => configurato() && !!token();
+  const indirizzo = () => location.origin + location.pathname;
+
+  // ─────────────── accesso
+
+  const b64url = byte => btoa(String.fromCharCode(...new Uint8Array(byte)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const casuale = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
+
+  async function collega() {
+    if (!configurato()) {
+      mostraMessaggio('Manca il clientId dell\'app Microsoft: vedi ONEDRIVE_CONFIG nel codice.');
+      return;
+    }
+    const verifier = casuale(48);
+    const statoOAuth = casuale(16);
+    const sfida = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+
+    // In localStorage e non in sessionStorage: su iPhone il login può tornare in una
+    // vista diversa da quella da cui è partito.
+    scrivi(CHIAVE_ACCESSO, JSON.stringify({ verifier, stato: statoOAuth }));
+
+    const q = new URLSearchParams({
+      client_id: ONEDRIVE_CONFIG.clientId,
+      response_type: 'code',
+      redirect_uri: indirizzo(),
+      scope: ONEDRIVE_CONFIG.ambiti,
+      state: statoOAuth,
+      code_challenge: sfida,
+      code_challenge_method: 'S256',
+      prompt: 'select_account'
+    });
+    location.assign(`${ONEDRIVE_CONFIG.autorita}/oauth2/v2.0/authorize?${q}`);
+  }
+
+  /** Al ritorno dal login Microsoft l'indirizzo porta ?code=…&state=… */
+  async function completaAccesso() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has('code') && !q.has('error')) return;
+    history.replaceState(null, '', indirizzo() + location.hash);
+
+    let atteso = null;
+    try { atteso = JSON.parse(leggi(CHIAVE_ACCESSO)); } catch (_) {}
+    scrivi(CHIAVE_ACCESSO, null);
+
+    if (q.has('error')) {
+      if (q.get('error') !== 'access_denied') {
+        mostraMessaggio('Accesso a OneDrive non riuscito: ' + (q.get('error_description') || q.get('error')));
+      }
+      return;
+    }
+    if (!atteso || atteso.stato !== q.get('state')) {
+      mostraMessaggio('Accesso a OneDrive non riuscito: risposta inattesa, riprova.');
+      return;
+    }
+
+    await chiediToken({
+      grant_type: 'authorization_code',
+      code: q.get('code'),
+      redirect_uri: indirizzo(),
+      code_verifier: atteso.verifier
+    });
+    mostraMessaggio('OneDrive collegato.');
+  }
+
+  async function chiediToken(parametri) {
+    const risposta = await fetch(`${ONEDRIVE_CONFIG.autorita}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: ONEDRIVE_CONFIG.clientId, scope: ONEDRIVE_CONFIG.ambiti, ...parametri
+      })
+    });
+    const corpo = await risposta.json().catch(() => ({}));
+    if (!risposta.ok || !corpo.access_token) {
+      const e = new Error(corpo.error_description || corpo.error || `HTTP ${risposta.status}`);
+      e.daRicollegare = risposta.status === 400 || risposta.status === 401;
+      throw e;
+    }
+    const t = {
+      accesso: corpo.access_token,
+      rinnovo: corpo.refresh_token || (token() || {}).rinnovo,
+      scade: Date.now() + (corpo.expires_in || 3600) * 1000
+    };
+    scrivi(CHIAVE_TOKEN, JSON.stringify(t));
+    return t.accesso;
+  }
+
+  async function tokenValido() {
+    const t = token();
+    if (!t) throw Object.assign(new Error('non collegato'), { daRicollegare: true });
+    if (t.scade - Date.now() > 60 * 1000) return t.accesso;
+    if (!t.rinnovo) throw Object.assign(new Error('accesso scaduto'), { daRicollegare: true });
+    try {
+      return await chiediToken({ grant_type: 'refresh_token', refresh_token: t.rinnovo });
+    } catch (e) {
+      // Il rinnovo di un'app a pagina singola dura 24 ore: dopo si ripassa dal login.
+      if (e.daRicollegare) scrivi(CHIAVE_TOKEN, null);
+      throw e;
+    }
+  }
+
+  function scollega() {
+    scrivi(CHIAVE_TOKEN, null);
+    scrivi(CHIAVE_ATTESA, null);
+    scrivi(CHIAVE_ULTIMA, null);
+    stato = 'fermo';
+    disegnaStatoDati();
+    mostraMessaggio('OneDrive scollegato. I dati restano su questo dispositivo.');
+  }
+
+  // ─────────────── i file
+
+  const percorsoUrl = () =>
+    ONEDRIVE_CONFIG.percorso.split('/').map(encodeURIComponent).join('/');
+
+  async function graph(metodo, url, opzioni = {}) {
+    const risposta = await fetch(GRAPH + url, {
+      method: metodo,
+      body: opzioni.corpo,
+      headers: { Authorization: 'Bearer ' + await tokenValido(), ...opzioni.intestazioni }
+    });
+    if (risposta.status === 401) {
+      scrivi(CHIAVE_TOKEN, null);
+      throw Object.assign(new Error('accesso scaduto'), { daRicollegare: true });
+    }
+    return risposta;
+  }
+
+  /** Il file su OneDrive: { contenuto, eTag }, o null se non c'è ancora. */
+  async function scarica() {
+    const r = await graph('GET', `/me/drive/root:/${percorsoUrl()}`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`lettura da OneDrive: HTTP ${r.status}`);
+    const elemento = await r.json();
+
+    // Il link di scaricamento è già autorizzato e non vuole l'intestazione del token.
+    const f = await fetch(elemento['@microsoft.graph.downloadUrl'], { cache: 'no-store' });
+    if (!f.ok) throw new Error(`lettura da OneDrive: HTTP ${f.status}`);
+    return { contenuto: leggiContenuto(JSON.parse(await f.text())), eTag: elemento.eTag };
+  }
+
+  /** Scrive il file; false se nel frattempo qualcun altro l'ha cambiato. */
+  async function invia(contenuto, eTag) {
+    const url = `/me/drive/root:/${percorsoUrl()}:/content` +
+      (eTag ? '' : '?@microsoft.graph.conflictBehavior=fail');
+    const r = await graph('PUT', url, {
+      corpo: JSON.stringify(contenuto, null, 2),
+      intestazioni: { 'Content-Type': 'application/json', ...(eTag ? { 'If-Match': eTag } : {}) }
+    });
+    if (r.status === 412 || r.status === 409) return false;
+    if (!r.ok) throw new Error(`scrittura su OneDrive: HTTP ${r.status}`);
+    return true;
+  }
+
+  // ─────────────── l'unione
+
+  function unisci(a, b) {
+    const laser = new Map();
+    for (const l of [...a.laser, ...b.laser]) {
+      const c = laser.get(l.id);
+      if (!c || l.modificato > c.modificato) laser.set(l.id, l);
+    }
+    const eliminati = new Map();
+    for (const t of [...a.eliminati, ...b.eliminati]) {
+      const c = eliminati.get(t.id);
+      if (!c || t.quando > c.quando) eliminati.set(t.id, t);
+    }
+
+    const limite = new Date(Date.now() - TIENI_ELIMINATI_GIORNI * 864e5).toISOString();
+    for (const [id, t] of eliminati) {
+      const l = laser.get(id);
+      if (l && l.modificato > t.quando) eliminati.delete(id);
+      else if (t.quando < limite) { eliminati.delete(id); laser.delete(id); }
+      else laser.delete(id);
+    }
+
+    const perId = (x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+    return {
+      versione: 1,
+      laser: [...laser.values()].sort(perId),
+      eliminati: [...eliminati.values()].sort(perId)
+    };
+  }
+
+  const uguali = (x, y) => JSON.stringify(unisci(x, vuoti())) === JSON.stringify(unisci(y, vuoti()));
+
+  // ─────────────── la sincronizzazione
+
+  function sincronizza() {
+    if (!collegato()) return Promise.resolve();
+    if (inCorso) { ancora = true; return inCorso; }
+
+    inCorso = (async () => {
+      do {
+        ancora = false;
+        await giro();
+      } while (ancora);
+    })().finally(() => { inCorso = null; });
+    return inCorso;
+  }
+
+  async function giro() {
+    if (!navigator.onLine) { stato = 'offline'; disegnaStatoDati(); return; }
+    stato = 'in-corso';
+    disegnaStatoDati();
+
+    try {
+      for (let tentativo = 0; tentativo < 4; tentativo++) {
+        const inizio = modifiche;
+        const remoto = await scarica();
+        const unito = unisci(dati, remoto ? remoto.contenuto : vuoti());
+
+        if (!uguali(unito, dati)) {
+          dati = unito;
+          salvaLocale();
+          disegna();
+        }
+
+        if (!remoto || !uguali(unito, remoto.contenuto)) {
+          if (!await invia(unito, remoto && remoto.eTag)) continue;   // cambiato là: rileggi
+        }
+
+        if (modifiche === inizio) scrivi(CHIAVE_ATTESA, null);
+        scrivi(CHIAVE_ULTIMA, new Date().toISOString());
+        stato = 'fermo';
+        erroreTesto = '';
+        disegnaStatoDati();
+        return;
+      }
+      throw new Error('il file su OneDrive continua a cambiare, riprova tra poco');
+    } catch (e) {
+      stato = navigator.onLine ? 'errore' : 'offline';
+      erroreTesto = e.daRicollegare ? 'Accesso scaduto: ricollega OneDrive.' : e.message;
+      disegnaStatoDati();
+    }
+  }
+
+  /** Chiamata a ogni modifica fatta qui: si invia poco dopo, raccogliendo le raffiche. */
+  function modificato() {
+    if (!collegato()) return;
+    modifiche++;
+    scrivi(CHIAVE_ATTESA, '1');
+    clearTimeout(timer);
+    timer = setTimeout(sincronizza, 1500);
+    disegna_();
+  }
+
+  // ─────────────── lo stato a video
+
+  function disegna_() {
+    const box = $('stato-onedrive');
+    box.replaceChildren();
+    const riga = (testo, classe) => {
+      const e = document.createElement('div');
+      if (classe) e.className = classe;
+      e.textContent = testo;
+      box.append(e);
+    };
+
+    const c = collegato();
+    $('od-collega').hidden = c;
+    $('od-sincronizza').hidden = !c;
+    $('od-scollega').hidden = !c;
+    $('od-sincronizza').disabled = stato === 'in-corso';
+
+    if (!configurato()) {
+      riga('Non ancora configurato: manca l\'ID dell\'app Microsoft (ONEDRIVE_CONFIG nel codice).', 'avviso');
+      $('od-collega').hidden = true;
+      return;
+    }
+    if (!c) {
+      riga(erroreTesto || `Collega OneDrive per salvare i dati nel file «${ONEDRIVE_CONFIG.percorso}» e ritrovarli sugli altri dispositivi.`,
+        erroreTesto ? 'errore-sinc' : '');
+      return;
+    }
+
+    const ultima = leggi(CHIAVE_ULTIMA);
+    const quando = ultima
+      ? new Date(ultima).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const inAttesa = leggi(CHIAVE_ATTESA) === '1';
+
+    if (stato === 'in-corso') riga('Sincronizzazione in corso…');
+    else if (stato === 'errore') riga('Sincronizzazione non riuscita: ' + erroreTesto, 'errore-sinc');
+    else if (stato === 'offline') riga('Senza rete: le modifiche partiranno quando torna.', 'avviso');
+    else if (inAttesa) riga('Modifiche da inviare…');
+    else if (quando) riga(`Sincronizzato con OneDrive · ${quando}`, 'ok');
+    else riga('Collegato a OneDrive.');
+
+    riga(`File: ${ONEDRIVE_CONFIG.percorso}`);
+  }
+
+  // ─────────────── avvio
+
+  async function avvia() {
+    $('od-collega').addEventListener('click', () => collega().catch(e => mostraMessaggio(e.message)));
+    $('od-sincronizza').addEventListener('click', sincronizza);
+    $('od-scollega').addEventListener('click', () => {
+      if (confirm('Scollegare OneDrive da questo dispositivo? Il file su OneDrive resta.')) scollega();
+    });
+
+    window.addEventListener('online', sincronizza);
+    window.addEventListener('offline', () => { stato = 'offline'; disegnaStatoDati(); });
+    // Tornando sull'app (dal PC o dopo averla lasciata in background) si prende
+    // quello che è cambiato altrove nel frattempo.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') sincronizza();
+    });
+
+    try {
+      await completaAccesso();
+    } catch (e) {
+      erroreTesto = 'Accesso a OneDrive non riuscito: ' + e.message;
+    }
+    disegnaStatoDati();
+    await sincronizza();
+  }
+
+  return { avvia, collegato, modificato, disegna: disegna_, sincronizza };
+})();
+
 // Se il dato cambia in un'altra scheda dello stesso browser, questa si aggiorna.
 window.addEventListener('storage', e => {
   if (e.key === CHIAVE) { dati = carica(); disegna(); }
 });
 
 disegna();
+onedrive.avvia();
 
 // ════════════════════════════════════════════════ offline
 //
