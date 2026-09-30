@@ -790,10 +790,10 @@ function nascondiMessaggio() {
 // solo se su OneDrive è ancora quello appena letto (If-Match), altrimenti si rilegge.
 
 const ONEDRIVE_CONFIG = {
-  clientId: '',
-  // «common» accetta sia account aziendali (Microsoft 365) sia personali; con il solo
-  // tenant aziendale si può mettere qui il suo id o dominio.
-  autorita: 'https://login.microsoftonline.com/common',
+  clientId: '7231f26c-9730-40c1-9d9f-1cccafae72c3',
+  // Il tenant aziendale e non «common»: un'app registrata per i soli account della
+  // propria directory con «common» verrebbe rifiutata (AADSTS50194).
+  autorita: 'https://login.microsoftonline.com/tiesserobot.it',
   ambiti: 'Files.ReadWrite offline_access',
   percorso: 'App gestione R&D/laser_servo_robot.json'
 };
