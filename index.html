@@ -140,9 +140,33 @@ main.pc { max-width: 1400px; }
 .pc-mese h2 span { color: var(--faint); font-weight: 400; }
 .pc-gruppo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .pc-intesta, .pc-riga {
-  display: grid; gap: 4px 12px; align-items: center;
-  grid-template-columns: 130px minmax(110px, 1fr) minmax(120px, 1.1fr) 150px minmax(160px, 1.6fr) minmax(140px, 1.4fr);
+  display: grid; gap: 4px 10px; align-items: center;
+  grid-template-columns: 120px minmax(100px, 1fr) minmax(130px, 1.2fr) 150px 140px minmax(150px, 1.6fr) minmax(130px, 1.4fr) 32px;
 }
+/* Le celle che si scrivono sul posto: sembrano testo finché non ci si passa sopra. */
+.pc-riga.sul-posto { cursor: default; padding-top: 6px; padding-bottom: 6px; }
+.pc-riga.sul-posto:hover { background: none; }
+.modificabile {
+  min-height: 30px; padding: 5px 6px; margin: 0 -6px; border-radius: 6px; outline: none;
+  border: 1px solid transparent; cursor: text; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.modificabile:hover { border-color: var(--border2); background: var(--bg); }
+.modificabile:focus { border-color: var(--accent); background: var(--control); box-shadow: 0 0 0 2px rgba(15, 143, 125, .15); }
+.modificabile:empty::before { content: attr(data-vuoto); color: var(--faint); font-style: italic; }
+.modificabile:focus:empty::before { content: ""; }
+.chip.togli { cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; }
+.chip.togli:hover { border-color: var(--danger); color: var(--danger); text-decoration: line-through; }
+.chip.piu { cursor: pointer; font: inherit; font-size: 13px; line-height: 1; padding: 3px 9px; color: var(--accent); border-style: dashed; }
+.pc-sw-nuovo {
+  width: 110px; font: inherit; font-size: 12.5px; padding: 3px 8px; border-radius: 999px; outline: none;
+  color: var(--text); background: var(--control); border: 1px solid var(--accent);
+}
+.pc-consegna {
+  width: 100%; font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 8px;
+  color: var(--text); background: transparent; border: 1px solid transparent;
+}
+.pc-consegna:hover, .pc-consegna:focus { border-color: var(--border2); background: var(--control); outline: none; }
+.pc-altro { width: 32px; height: 32px; padding: 0; font-size: 16px; line-height: 1; color: var(--muted); }
 .pc-intesta {
   margin-top: 12px; padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; color: var(--faint);
@@ -166,7 +190,7 @@ main.pc { max-width: 1400px; }
 .pc-stato.aperto { background: rgba(232, 195, 40, .22); border-color: rgba(200, 160, 20, .55); }
 .pc-stato.pronto { background: rgba(15, 143, 125, .14); border-color: rgba(15, 143, 125, .45); }
 .pc-stato.fatto { color: var(--muted); }
-.pc-riga.stornata > :not(select) { text-decoration: line-through; color: var(--faint); }
+.pc-riga.stornata > :not(select, button, input) { text-decoration: line-through; color: var(--faint); }
 .pc-riga.stornata .pc-note { text-decoration: none; }
 @media (max-width: 760px) {
   .pc-intesta { display: none; }
@@ -713,8 +737,9 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   </div>
   <div class="conti pc-conti" id="pc-conti"></div>
   <div class="pc-intesta" aria-hidden="true">
-    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Hardware</span><span>Note</span>
+    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Consegna</span><span>Hardware</span><span>Note</span><span></span>
   </div>
+  <datalist id="pc-sw-usati"></datalist>
   <div id="pc-lista"></div>
   <div class="vuoto" id="pc-vuoto" hidden></div>
 </main>
