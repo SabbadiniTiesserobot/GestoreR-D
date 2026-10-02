@@ -253,6 +253,7 @@ th.c-foto { text-align: center; }
 .ore-avviso button { margin-top: 8px; display: block; }
 .ore-nota { font-size: 13.5px; color: var(--text2); margin-bottom: 8px; padding-left: 10px; border-left: 2px solid var(--border2); white-space: pre-wrap; }
 .ore-slot { touch-action: pan-y; }
+.ore-slot, .mese-griglia { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .sessione { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .pausa {
   position: relative; height: 18px; margin: 6px 0; text-align: center;
@@ -260,7 +261,7 @@ th.c-foto { text-align: center; }
 }
 .pausa::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--border2); }
 .pausa span { position: relative; background: var(--bg); padding: 0 8px; }
-.ora { display: flex; height: 52px; border-top: 1px solid var(--border); }
+.ora { display: flex; height: var(--ora, 52px); border-top: 1px solid var(--border); }
 .ora:first-child { border-top: 0; }
 .ora.dentro { border-top-color: transparent; }
 .ora .quando {
@@ -269,6 +270,7 @@ th.c-foto { text-align: center; }
 }
 .ora .metà { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .cella {
+  position: relative; overflow: hidden; cursor: pointer;
   flex: 1; min-height: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px;
   border: 0; border-radius: 0; background: none; text-align: left; width: 100%;
   font-size: 15px; color: var(--text);
@@ -280,6 +282,32 @@ th.c-foto { text-align: center; }
 .cella .intervallo { font-size: 12px; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .cella .tot { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cella.vuota .nome { color: var(--faint); }
+.cella.spenta { filter: grayscale(1); opacity: .3; }
+.cella:focus { outline: none; }
+
+/* La presa per allungare: al centro del bordo inferiore del blocco, larga 46 px. Col
+   mouse compare passandoci sopra; col dito si vede sempre, un po' smorzata. */
+.presa {
+  position: absolute; left: 50%; bottom: 0; width: 46px; height: 7px; margin-left: -23px;
+  border-radius: 4px 4px 0 0; cursor: ns-resize; opacity: 0; transition: opacity .14s;
+  background: hsl(var(--h) 55% var(--l));
+}
+.cella:hover .presa { opacity: 1; }
+@media (pointer: coarse) { .presa { opacity: .5; height: 9px; } }
+.ore-fantasma {
+  position: fixed; z-index: 30; pointer-events: none; overflow: hidden;
+  border: 2px dashed var(--accent); border-radius: 6px; background: rgba(15, 143, 125, .16);
+  padding: 2px 8px; font-size: 12px; font-weight: 600; color: var(--text-strong); white-space: nowrap;
+}
+.ore-fantasma.copia { border-style: dotted; }
+.ore-fantasma.fuori { display: none; }
+body.trascina, body.trascina * { cursor: grabbing !important; }
+canvas.effetti {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 40;
+  pointer-events: none; image-rendering: pixelated;
+}
+.interruttore { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 14px; color: var(--text2); }
+.interruttore input { width: 18px; height: 18px; accent-color: var(--accent); }
 .tinta { --h: 0; --l: 45%; }
 .tinta.alt { --l: 33%; }
 @media (prefers-color-scheme: dark) { .tinta { --l: 66%; } .tinta.alt { --l: 54%; } }
@@ -291,7 +319,105 @@ th.c-foto { text-align: center; }
 .sola-lettura .cella { cursor: default; }
 .ore-comandi { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
 .ore-comandi .spazio { flex: 1; }
-.ore-comandi #ore-annulla, .ore-comandi #ore-rifai { width: 44px; padding: 8px 0; font-size: 18px; }
+button.icona { width: 40px; height: 40px; padding: 0; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+button.icona svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ore-comandi { gap: 6px; margin-top: 12px; }
+dialog.scheda-ore .azioni { flex-wrap: wrap; }
+
+/* Il telefono: tutto più stretto, perché la giornata stia nello schermo. */
+@media (max-width: 999px) {
+  .ore-freccia { width: 40px; height: 40px; }
+  .ore-data b { font-size: 16px; }
+  .ore-settimana { margin: 8px 0 6px; gap: 5px; }
+  .ore-settimana button { padding: 3px 2px; gap: 0; }
+  .ore-settimana button .num { font-size: 14px; }
+  .ore-nota { margin-bottom: 6px; }
+  .pausa { margin: 4px 0; height: 16px; line-height: 16px; }
+}
+
+/* ─────────────────────────────── il PC: la griglia del mese */
+body:not(.ore-pc) #ore-mese, body.ore-pc #ore-telefono, body.ore-pc #targa-ore { display: none; }
+body.ore-pc .testata { max-width: none; }
+body.ore-pc main.ore { max-width: none; padding-top: 8px; }
+body.vista-ore.ore-pc { padding-bottom: 0; }
+.mese-barra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.mese-nav { display: flex; align-items: center; gap: 6px; }
+.mese-titolo { min-width: 150px; text-align: center; font-size: 17px; }
+.mese-titolo b { color: var(--text-strong); }
+.mese-titolo span { color: var(--faint); }
+.mese-targa { font-size: 13.5px; color: var(--muted); padding: 4px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
+.mese-targa b { color: var(--text-strong); }
+.mese-targa .da-fare { color: var(--warn); }
+.mese-targa .fatto { color: var(--ok); }
+#mese-accorpa[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.mese-msg { flex: 1; min-width: 120px; text-align: center; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mese-ricerca { position: relative; width: 280px; }
+.mese-ricerca .cerca { margin: 0; font-size: 14px; padding: 7px 10px; }
+.risultati .ris-testa { font-size: 14px; color: var(--text2); margin-bottom: 8px; }
+.risultati .ris-testa b { font-size: 18px; color: var(--text-strong); }
+.ris-voci { margin-bottom: 8px; }
+.ris-voce, .ris-mese, .ris-giorno { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; }
+.ris-voce { padding: 3px 0; color: var(--text); }
+.ris-voce span:first-child, .ris-giorno .cosa { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ris-mese { margin-top: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+.ris-mese span:first-child { flex: 1; }
+.ris-giorno { width: 100%; border: 0; border-radius: 6px; background: none; padding: 5px 4px; text-align: left; color: var(--text); }
+.ris-giorno:hover { background: var(--bg); }
+.ris-giorno .quando { width: 92px; flex: none; color: var(--muted); }
+.risultati .n { font-variant-numeric: tabular-nums; color: var(--text-strong); }
+#mese-risultati {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 440px; max-height: 70vh; overflow-y: auto;
+  padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--control-border); box-shadow: var(--ombra);
+}
+#ricerca-risultati { margin-top: 10px; max-height: min(58vh, 520px); overflow-y: auto; }
+
+.mese-griglia { --ora: 20px; display: grid; gap: 6px; }
+.settimana { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+body.ore-pc .sopratitolo { display: none; }
+body.ore-pc header { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: 6px; }
+body.ore-pc .mese-barra button { height: 34px; padding-top: 0; padding-bottom: 0; }
+body.ore-pc .mese-barra button.icona { width: 34px; }
+.mese-griglia .presa { height: 5px; }
+.mese-griglia .metà .cella { font-size: min(11px, calc(var(--ora) * .6)); line-height: 1; }
+.mese-griglia .metà .cella .tot { font-size: inherit; }
+.giorno-col { min-width: 0; border-radius: 8px; }
+.giorno-testa {
+  width: 100%; height: 22px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
+  border: 0; border-radius: 6px; background: none; font-size: 11px; letter-spacing: .04em; color: var(--muted);
+}
+.giorno-testa .quando { flex: 1; text-align: left; white-space: nowrap; }
+.giorno-testa .num { color: var(--text-strong); font-weight: 600; padding: 0 3px; border-radius: 4px; }
+.giorno-testa .num.oggi { background: var(--accent); color: var(--on-accent); }
+.giorno-testa .tot { font-size: 12px; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.giorno-testa .segno-nota { color: var(--accent); cursor: help; }
+.giorno-col.fuori .giorno-testa .quando { color: var(--faint); }
+.giorno-col.fuori .giorno-testa .num { color: var(--faint); font-weight: 400; }
+.giorno-col.giorno-scelto .giorno-testa { box-shadow: inset 0 0 0 2px var(--accent); }
+.mese-griglia .sessione { border-radius: 6px; }
+.mese-griglia .pausa { height: 6px; margin: 2px 0; }
+.mese-griglia .ora .quando { width: 34px; padding: 1px 0 0 4px; font-size: 9.5px; }
+.mese-griglia .cella { font-size: 12px; padding: 0 6px; gap: 4px; line-height: 1.1; }
+.mese-griglia .cella .tot { font-size: 11px; }
+.mese-griglia .metà .cella { font-size: 11px; }
+.mese-griglia .cella.scelta { outline-width: 2px; border-radius: 3px; }
+.accorpata {
+  height: calc(var(--ora) * 8 + 12px); display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--panel);
+}
+.cella.accorpo { flex: none; cursor: default; border-bottom: 1px solid var(--border); }
+
+/* Il campo sopra lo slot, con la tendina dell'autocomplete. */
+.ore-campo { position: fixed; z-index: 25; }
+.ore-campo input {
+  width: 100%; font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 6px; outline: none;
+  color: var(--text); background: var(--panel); border: 2px solid var(--accent); box-shadow: var(--ombra);
+}
+.ore-campo .proposte {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); margin: 0; max-height: 280px;
+  padding: 4px; border-radius: 8px; background: var(--panel); border: 1px solid var(--control-border); box-shadow: var(--ombra);
+}
+.ore-campo .proposte.sopra { top: auto; bottom: calc(100% + 4px); }
+.ore-campo .proposte button { padding: 6px 8px; font-size: 13.5px; }
 button:disabled { opacity: .45; cursor: default; }
 button:disabled:hover { border-color: var(--control-border); }
 
@@ -448,6 +574,7 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 </header>
 
 <main id="vista-ore" class="ore">
+ <div id="ore-telefono">
   <div class="ore-giorno">
     <button type="button" class="ore-freccia" id="ore-prima" aria-label="Giorno lavorativo prima">‹</button>
     <div class="ore-data">
@@ -460,13 +587,40 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   <div class="ore-avviso" id="ore-avviso" hidden></div>
   <div class="ore-nota" id="ore-nota" hidden></div>
   <div class="ore-slot" id="ore-slot"></div>
-  <div class="ore-comandi">
-    <button type="button" id="ore-annulla" aria-label="Annulla" title="Annulla">↶</button>
-    <button type="button" id="ore-rifai" aria-label="Rifai" title="Rifai">↷</button>
+  <div class="ore-comandi" id="ore-comandi">
+    <button type="button" class="icona" id="ore-annulla" aria-label="Annulla" title="Annulla">↶</button>
+    <button type="button" class="icona" id="ore-rifai" aria-label="Rifai" title="Rifai">↷</button>
+    <button type="button" class="icona" id="ore-copia-giorno" aria-label="Copia la giornata" title="Copia la giornata"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="10" rx="2"/><path d="M13.5 4.5v-.5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 4v7A1.5 1.5 0 0 0 5 12.5h.5"/></svg></button>
+    <button type="button" class="icona" id="ore-incolla" aria-label="Incolla la giornata" title="Incolla la giornata"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="4" width="11" height="13.5" rx="2"/><path d="M7.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1"/><path d="M7.5 10h5M7.5 13h3"/></svg></button>
     <span class="spazio"></span>
+    <button type="button" class="icona" id="ore-cerca-apri" aria-label="Cerca nelle ore" title="Cerca nelle ore"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.3 12.3 17 17"/></svg></button>
+    <button type="button" class="icona" id="ore-riepilogo" aria-label="Riepilogo" title="Riepilogo">Σ</button>
     <button type="button" id="ore-oggi">Oggi</button>
-    <button type="button" id="ore-riepilogo">Riepilogo</button>
   </div>
+ </div>
+
+ <div id="ore-mese">
+  <div class="mese-barra">
+    <div class="mese-nav">
+      <button type="button" class="icona" id="mese-prima" aria-label="Mese prima">‹</button>
+      <span class="mese-titolo"><b id="mese-nome">—</b> <span id="mese-anno"></span></span>
+      <button type="button" class="icona" id="mese-dopo" aria-label="Mese dopo">›</button>
+    </div>
+    <span class="mese-targa" id="mese-targa"></span>
+    <button type="button" class="icona" id="mese-annulla" aria-label="Annulla" title="Annulla (Ctrl+Z)">↶</button>
+    <button type="button" class="icona" id="mese-rifai" aria-label="Rifai" title="Rifai (Ctrl+Y)">↷</button>
+    <button type="button" id="mese-accorpa" aria-pressed="false" title="Vista accorpata (F4)">Accorpa</button>
+    <button type="button" id="mese-riepilogo">Riepilogo</button>
+    <span class="mese-msg" id="mese-msg" role="status" aria-live="polite"></span>
+    <div class="mese-ricerca">
+      <input id="mese-cerca" class="cerca" type="search" placeholder="Cerca commessa o attività"
+             autocomplete="off" spellcheck="false" aria-label="Cerca commessa o attività">
+      <div class="risultati" id="mese-risultati" hidden></div>
+    </div>
+  </div>
+  <div class="ore-avviso" id="mese-avviso" hidden></div>
+  <div class="mese-griglia" id="mese-griglia"></div>
+ </div>
 </main>
 
 <main id="vista-laser">
@@ -527,11 +681,35 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
     <div class="azioni">
       <button type="button" class="pericolo" id="ore-svuota">Svuota</button>
       <button type="button" id="ore-dividi">½ ora</button>
+      <button type="button" class="icona" id="ore-copia" aria-label="Copia lo slot" title="Copia lo slot"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="10" rx="2"/><path d="M13.5 4.5v-.5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 4v7A1.5 1.5 0 0 0 5 12.5h.5"/></svg></button>
+      <button type="button" class="icona" id="ore-incolla-slot" aria-label="Incolla qui" title="Incolla qui"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="4" width="11" height="13.5" rx="2"/><path d="M7.5 4V3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1"/><path d="M7.5 10h5M7.5 13h3"/></svg></button>
       <span class="spazio"></span>
       <button type="button" class="primario" id="ore-fine">Fine</button>
     </div>
   </div>
 </dialog>
+
+<dialog id="ricerca-ore" class="scheda-ore" aria-labelledby="ricerca-titolo">
+  <div class="dentro">
+    <h2 id="ricerca-titolo">Cerca nelle ore</h2>
+    <input id="ricerca-testo" class="cerca" type="search" placeholder="Commessa, alias, codice o cliente"
+           autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+           aria-label="Cerca nelle ore">
+    <div class="risultati" id="ricerca-risultati"></div>
+    <form method="dialog" class="azioni">
+      <button type="button" id="ricerca-pulisci">Pulisci</button>
+      <span class="spazio"></span>
+      <button type="submit" class="primario">Chiudi</button>
+    </form>
+  </div>
+</dialog>
+
+<div class="ore-campo" id="ore-campo" hidden>
+  <input id="ore-campo-testo" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Voce dello slot">
+  <ul class="proposte" id="ore-campo-lista"></ul>
+</div>
+<div class="ore-fantasma" id="ore-fantasma" hidden></div>
+<canvas class="effetti" id="effetti" aria-hidden="true"></canvas>
 
 <dialog id="riepilogo-ore" class="riepilogo-ore" aria-labelledby="riep-titolo">
   <form method="dialog">
@@ -558,6 +736,7 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   <form method="dialog">
     <h2 id="titolo-od">OneDrive</h2>
     <div id="stato-onedrive"></div>
+    <label class="interruttore"><input type="checkbox" id="effetti-acceso"> Effetti sulla griglia delle ore</label>
     <div class="azioni">
       <button type="button" class="pericolo" id="od-scollega">Scollega</button>
       <span class="spazio"></span>
@@ -1464,7 +1643,7 @@ const onedrive = (() => {
     await sincronizza();
   }
 
-  return { avvia, collegato, modificato, disegna: disegna_, sincronizza, registra };
+  return { avvia, collegato, modificato, disegna: disegna_, sincronizza, registra, leggiFile };
 })();
 
 // Se il dato cambia in un'altra scheda dello stesso browser, questa si aggiorna.
@@ -1485,6 +1664,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 </script>
+<script src="effetti.js"></script>
 <script src="ore.js"></script>
 </body>
 </html>

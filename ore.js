@@ -2,11 +2,12 @@
 
 // ════════════════════════════════════════════════ Ore
 //
-// Il modulo Ore di App gestione R&D, versione per il telefono. Legge e scrive lo
+// Il modulo Ore di App gestione R&D, versione web. Legge e scrive lo
 // stesso file dell'app desktop, «Ore/ore_<anno>.json» su OneDrive
 // (…\OneDrive - Tiesserobot\Ore\ sul PC), così le due versioni lavorano sugli stessi
-// dati. Il comportamento viene da HANDOFF-ORE.md; dove il telefono chiede altro (una
-// giornata per schermata invece della griglia del mese) lo dice il commento sul posto.
+// dati. Il comportamento viene da HANDOFF-ORE.md. Sul PC c'è la griglia del mese
+// (5 settimane × 5 giorni) con tastiera, trascinamento e copia/incolla; sul telefono,
+// che a 400 px non ha posto per cinque colonne, una giornata per schermata.
 //
 // Il file non si riscrive mai da capo: si rilegge da OneDrive, si sostituiscono le
 // voci delle sole giornate cambiate qui, si aggiungono le commesse nuove, e tutto il
@@ -370,12 +371,97 @@ const ore = (() => {
     return null;
   }
 
+  const coloreCss = tinta => `hsl(${tinta * (360 / TINTE) + 12} 60% 58%)`;
+
+  // ─────────────── le mezz'ore
+  //
+  // Per spostare, allungare e incollare la giornata si guarda come sedici mezz'ore
+  // (H[0] = 08:00–08:30 … H[15] = 17:00–17:30): un blocco è una corsa di mezz'ore di
+  // fila con la stessa voce, dentro la stessa sessione. La pausa non si attraversa.
+
+  const metàDi = righe => righe.flatMap(h => h.meta);
+  const sessioneDi = m => (m < 8 ? 0 : 1);
+  const limiti = m => [sessioneDi(m) * 8, sessioneDi(m) * 8 + 7];
+  const metàDiCella = (h, i, k) => (h.diviso ? [2 * i + (k || 0)] : [2 * i, 2 * i + 1]);
+  const inizioMetà = m => INIZI[m >> 1] + (m & 1) * 30;
+
+  /** Le righe con sopra le mezz'ore nuove; un'ora divisa resta divisa. */
+  function daMetà(righe, H) {
+    return righe.map((h, i) => {
+      const a = H[2 * i], b = H[2 * i + 1];
+      if (a === h.meta[0] && b === h.meta[1]) return h;
+      return { inizio: h.inizio, diviso: h.diviso || a !== b, meta: [a, b], orig: h.orig };
+    });
+  }
+
+  function corsa(H, m) {
+    const id = H[m];
+    if (!id) return null;
+    const [s, e] = limiti(m);
+    let a = m, b = m;
+    while (a > s && H[a - 1] === id) a--;
+    while (b < e && H[b + 1] === id) b++;
+    return { id, a, b };
+  }
+
+  // Allungare dalla presa: a scatti di mezz'ora, mai oltre la fine della sessione, e un
+  // blocco pieno cede solo se lo si copre tutto; altrimenti ci si ferma prima.
+  function allunga(H, corsaDa, fine) {
+    const N = [...H];
+    const { id, a, b } = corsaDa;
+    const [, e] = limiti(a);
+    fine = Math.max(a, Math.min(fine, e));
+    for (let m = fine + 1; m <= b; m++) N[m] = null;
+    for (let m = b + 1; m <= fine;) {
+      if (!N[m]) { N[m] = id; m++; continue; }
+      const altra = corsa(N, m);
+      if (altra.b > fine) break;
+      for (let x = altra.a; x <= altra.b; x++) N[x] = id;
+      m = altra.b + 1;
+    }
+    return N;
+  }
+
+  // L'orario lo decide il cursore, con lo scatto alla mezz'ora; la pausa non si
+  // attraversa: un blocco da due ore lasciato sulle 11:30 comincia alle 10:00.
+  function dove(metàCursore, presa, lunghezza) {
+    const [s, e] = limiti(metàCursore);
+    return Math.max(s, Math.min(metàCursore - presa, e - lunghezza + 1));
+  }
+
+  /** Stesso giorno: sposta, tutto o niente. */
+  function sposta(H, { id, a, b }, t) {
+    const N = [...H];
+    for (let m = a; m <= b; m++) N[m] = null;
+    for (let k = 0; k <= b - a; k++) if (N[t + k]) return null;
+    for (let k = 0; k <= b - a; k++) N[t + k] = id;
+    return N;
+  }
+
+  /** Altro giorno (e incolla): copia la parte che entra, fino al primo pieno. */
+  function copiaIn(H, id, lunghezza, t) {
+    const N = [...H];
+    const [, e] = limiti(t);
+    let n = 0;
+    for (let k = 0; k < lunghezza && t + k <= e && !N[t + k]; k++, n++) N[t + k] = id;
+    return n ? N : null;
+  }
+
   // ─────────────── stato della vista
 
   let giorno = feriale(leggi(CHIAVE_GIORNO) || oggi());
-  let scelta = null;     // { ora: indice 0–7, meta: 0 | 1 | null }
-  const storia = [];     // { anno, data, prima, dopo }
+  let mese = giorno.slice(0, 7);   // il mese della griglia sul PC
+  let scelta = null;               // { data, ora: 0–7, meta: 0 | 1 | null }
+  let accorpata = false;
+  let appunti = null;              // { tipo: 'slot', id, lunghezza } | { tipo: 'giorno', voci }
+  let anteprima = null;            // { data, H } mentre si allunga un blocco
+  let ricerca = '';
+  const storia = [];               // passi: [{ anno, data, prima, dopo }]
   let futuro = [];
+  const daGiocare = [];            // effetti che aspettano il disegno
+
+  const pc = window.matchMedia('(min-width: 1000px)');
+  const suPc = () => pc.matches;
 
   const etichettaDi = (info, id) => {
     const c = info && info.commesse.get(id);
@@ -388,87 +474,228 @@ const ore = (() => {
     return { info, g };
   }
 
+  function righeDi(data) {
+    const { info, g } = infoGiorno(data);
+    const r = grigliaDi(data, g);
+    if (anteprima && anteprima.data === data) r.ore = daMetà(r.ore, anteprima.H);
+    return { ...r, info, g };
+  }
+
+  const minutiDi = data => minutiGiorno(infoGiorno(data).g);
+
+  function avvisa(testo) {
+    if (suPc() && document.body.classList.contains('vista-ore')) {
+      const m = $('mese-msg');
+      m.textContent = testo;
+      clearTimeout(avvisa.t);
+      avvisa.t = setTimeout(() => { m.textContent = ''; }, 4000);
+    } else {
+      mostraMessaggio(testo);
+    }
+  }
+
+  // ─────────────── gli effetti, dopo il disegno
+
+  const cellaDi = (data, ora, meta) =>
+    document.querySelector(`.cella[data-data="${data}"][data-ora="${ora}"][data-meta="${meta == null ? '' : meta}"]`);
+  const colonnaDi = data => (suPc()
+    ? document.querySelector(`.giorno-col[data-giorno="${data}"]`)
+    : (data === giorno ? $('ore-slot') : null));
+  const rettDi = el => (el ? el.getBoundingClientRect() : null);
+
+  function effetto(tipo, trova, opzioni) { daGiocare.push({ tipo, trova, opzioni }); }
+
+  function giocaEffetti() {
+    const lista = daGiocare.splice(0);
+    if (!lista.length) return;
+    requestAnimationFrame(() => {
+      for (const e of lista) {
+        const r = rettDi(e.trova());
+        if (r && r.width) effetti.gioca(e.tipo, r, e.opzioni);
+      }
+    });
+  }
+
   // ─────────────── modificare
+
+  const settimanaDi = data => {
+    const out = [];
+    let d = lunedi(data);
+    for (let i = 0; i < 5; i++, d = spostaLavorativo(d, 1)) out.push(d);
+    return out;
+  };
+  const settimanaPiena = data => settimanaDi(data).every(d => minutiDi(d) === GIORNATA);
+
+  /** Un passo della storia: le giornate com'erano prima e dopo. */
+  function applicaPasso(giorni, quale) {
+    for (const p of giorni) {
+      statoAnno(p.anno).modifiche[p.data] = p[quale];
+      cambiato(p.anno);
+    }
+  }
 
   function cambiaGiornata(data, voci, { registra = true } = {}) {
     const anno = annoDi(data);
     const { info, g } = infoGiorno(data);
-    if (!info || info.solaLettura) return;
+    if (!info || info.solaLettura) return false;
     const prima = g && Array.isArray(g.voci) ? g.voci : [];
-    if (JSON.stringify(prima) === JSON.stringify(voci)) return;
+    if (JSON.stringify(prima) === JSON.stringify(voci)) return false;
 
+    const eraPiena = minutiGiorno(g) === GIORNATA;
+    const eraSettimana = settimanaPiena(data);
     if (registra) {
-      storia.push({ anno, data, prima, dopo: voci });
+      storia.push([{ anno, data, prima, dopo: voci }]);
       if (storia.length > PASSI_STORIA) storia.shift();
       futuro = [];
     }
     statoAnno(anno).modifiche[data] = voci;
     cambiato(anno);
-  }
 
-  function modificaScelta(fn) {
-    if (!scelta) return;
-    const { g } = infoGiorno(giorno);
-    const { ore: righe, modificabile } = grigliaDi(giorno, g);
-    if (!modificabile) return;
-    const h = righe[scelta.ora];
-    fn(h);
-    if (h.diviso) divise.add(`${giorno}|${scelta.ora}`);
-    else divise.delete(`${giorno}|${scelta.ora}`);
-    cambiaGiornata(giorno, vociDa(righe));
-  }
-
-  function imposta(id) {
-    modificaScelta(h => {
-      if (h.diviso) h.meta[scelta.meta || 0] = id;
-      else h.meta = [id, id];
-    });
-  }
-
-  function dividiORiunisci() {
-    modificaScelta(h => {
-      if (h.diviso) {
-        const c = h.meta[0] || h.meta[1];
-        h.diviso = false;
-        h.meta = [c, c];
-      } else {
-        h.diviso = true;
-      }
-    });
-    const { g } = infoGiorno(giorno);
-    const h = grigliaDi(giorno, g).ore[scelta.ora];
-    scelta.meta = h.diviso ? 0 : null;
-  }
-
-  /** Dopo aver scelto una voce si passa allo slot dopo; in fondo alla giornata ci si ferma. */
-  function avanza() {
-    const { g } = infoGiorno(giorno);
-    const righe = grigliaDi(giorno, g).ore;
-    if (righe[scelta.ora].diviso && scelta.meta === 0) { scelta.meta = 1; return true; }
-    if (scelta.ora >= INIZI.length - 1) return false;
-    scelta.ora++;
-    scelta.meta = righe[scelta.ora].diviso ? 0 : null;
+    if (!eraPiena && minutiDi(data) === GIORNATA) {
+      effetto('giornata', () => colonnaDi(data));
+      avvisa('Giornata finita.');
+    }
+    if (!eraSettimana && settimanaPiena(data)) {
+      effetto('settimana', () => (suPc()
+        ? document.querySelector(`.settimana[data-lunedi="${lunedi(data)}"]`) : $('ore-settimana')));
+    }
     return true;
   }
+
+  /** Cambia le righe di una giornata; tiene a mente le ore vuote divise. */
+  function modificaRighe(data, fn) {
+    const { info, g } = infoGiorno(data);
+    if (!info || info.solaLettura) return false;
+    const r = grigliaDi(data, g);
+    if (!r.modificabile) return false;
+    const nuove = fn(r.ore);
+    if (!nuove) return false;
+    nuove.forEach((h, i) => {
+      const k = `${data}|${i}`;
+      if (h.diviso && !h.meta[0] && !h.meta[1]) divise.add(k);
+      else divise.delete(k);
+    });
+    cambiaGiornata(data, vociDa(nuove));
+    return true;
+  }
+
+  const scriviMetà = (data, H) => modificaRighe(data, ore => daMetà(ore, H));
+
+  function imposta(slot, id) {
+    const fatto = modificaRighe(slot.data, ore => {
+      const H = metàDi(ore);
+      for (const m of metàDiCella(ore[slot.ora], slot.ora, slot.meta)) H[m] = id;
+      return daMetà(ore, H);
+    });
+    if (!fatto) return;
+    const { info } = infoGiorno(slot.data);
+    const tinta = id ? tinte(metàDi(righeDi(slot.data).ore), x => etichettaDi(info, x)).get(id) : 0;
+    effetto(id ? 'scrivi' : 'cancella', () => cellaDi(slot.data, slot.ora, slot.meta), { colore: coloreCss(tinta || 0) });
+  }
+
+  function dividi(slot) {
+    modificaRighe(slot.data, ore => ore.map((h, i) => {
+      if (i !== slot.ora) return h;
+      if (!h.diviso) return { ...h, diviso: true };
+      const c = h.meta[0] || h.meta[1];
+      return { ...h, diviso: false, meta: [c, c] };
+    }));
+    const h = righeDi(slot.data).ore[slot.ora];
+    slot.meta = h.diviso ? 0 : null;
+  }
+
+  /** Lo slot dopo nella giornata; null in fondo, dove ci si ferma. */
+  function slotDopo(slot, passo = 1) {
+    const unità = [];
+    righeDi(slot.data).ore.forEach((h, i) => {
+      if (h.diviso) unità.push([i, 0], [i, 1]);
+      else unità.push([i, null]);
+    });
+    const ora = unità.findIndex(([i, k]) => i === slot.ora && (k === slot.meta || (k === 0 && slot.meta == null)));
+    const u = unità[ora + passo];
+    return u ? { data: slot.data, ora: u[0], meta: u[1] } : null;
+  }
+
+  function slotAccanto(slot, passo) {
+    const data = spostaLavorativo(slot.data, passo);
+    const h = righeDi(data).ore[slot.ora];
+    return { data, ora: slot.ora, meta: h.diviso ? (slot.meta || 0) : null };
+  }
+
+  const vociDelloSlot = slot => {
+    const h = righeDi(slot.data).ore[slot.ora];
+    return h.diviso ? h.meta[slot.meta || 0] : h.meta[0];
+  };
 
   function annulla() {
     const passo = storia.pop();
     if (!passo) return;
     futuro.push(passo);
-    statoAnno(passo.anno).modifiche[passo.data] = passo.prima;
-    cambiato(passo.anno);
-    vaiA(passo.data);
-    mostraMessaggio('Annullato.');
+    applicaPasso(passo, 'prima');
+    vaiA(passo[0].data, { tieniScelta: true });
+    passo.forEach(p => effetto('annulla', () => colonnaDi(p.data)));
+    avvisa('Annullato.');
+    disegna();
   }
 
   function rifai() {
     const passo = futuro.pop();
     if (!passo) return;
     storia.push(passo);
-    statoAnno(passo.anno).modifiche[passo.data] = passo.dopo;
-    cambiato(passo.anno);
-    vaiA(passo.data);
-    mostraMessaggio('Rifatto.');
+    applicaPasso(passo, 'dopo');
+    vaiA(passo[0].data, { tieniScelta: true });
+    passo.forEach(p => effetto('rifai', () => colonnaDi(p.data)));
+    avvisa('Rifatto.');
+    disegna();
+  }
+
+  // ─────────────── copia e incolla
+  //
+  // Con uno slot scelto si copia lo slot, e incollandolo va sull'ora scelta, con le
+  // stesse regole del trascinamento su un altro giorno; senza slot si copia la
+  // giornata, e incollandola sostituisce la giornata scelta. Decide quello che c'è
+  // negli appunti, non un tasto diverso.
+
+  function copia({ giornata = false } = {}) {
+    const { info, g } = infoGiorno(scelta ? scelta.data : giorno);
+    if (!info) return;
+    if (scelta && !giornata) {
+      const id = vociDelloSlot(scelta);
+      if (!id) { avvisa('Lo slot è vuoto: niente da copiare.'); return; }
+      const h = righeDi(scelta.data).ore[scelta.ora];
+      appunti = { tipo: 'slot', id, lunghezza: h.diviso ? 1 : 2 };
+      const s = { ...scelta };
+      effetto('copia', () => cellaDi(s.data, s.ora, s.meta));
+      avvisa(`Copiato ${etichettaDi(info, id)}`);
+      try { navigator.clipboard.writeText(etichettaDi(info, id)).catch(() => {}); } catch (_) {}
+    } else {
+      const data = scelta ? scelta.data : giorno;
+      appunti = { tipo: 'giorno', voci: JSON.parse(JSON.stringify((g && g.voci) || [])), da: data };
+      effetto('copia', () => colonnaDi(data));
+      avvisa(`Copiata la giornata di ${daData(data).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' })}`);
+    }
+    disegna();
+  }
+
+  function incolla() {
+    if (!appunti) { avvisa('Non c\'è niente da incollare.'); return; }
+    if (appunti.tipo === 'slot') {
+      if (!scelta) { avvisa('Scegli prima l\'ora su cui incollare.'); return; }
+      const slot = { ...scelta };
+      const righe = righeDi(slot.data).ore;
+      const t = metàDiCella(righe[slot.ora], slot.ora, slot.meta)[0];
+      const N = copiaIn(metàDi(righe), appunti.id, appunti.lunghezza, t);
+      if (!N) { avvisa('Lo slot è occupato: svuotalo prima.'); return; }
+      scriviMetà(slot.data, N);
+      effetto('incolla', () => cellaDi(slot.data, slot.ora, slot.meta));
+    } else {
+      const data = scelta ? scelta.data : giorno;
+      if (cambiaGiornata(data, JSON.parse(JSON.stringify(appunti.voci)))) {
+        effetto('incolla', () => colonnaDi(data));
+        avvisa('Giornata incollata.');
+      }
+    }
+    disegna();
   }
 
   // ─────────────── nuove commesse
@@ -476,20 +703,21 @@ const ore = (() => {
   // Un numero di commessa ha la forma 26045G04: anno, progressivo, lettera, due cifre.
   const NUMERO = /\b(\d{5}[A-Za-z]\d{2})\b/;
 
-  function nuovaCommessa(info, testo) {
+  function nuovaCommessa(data, testo) {
+    const info = documento(annoDi(data));
+    const s = statoAnno(annoDi(data));
     const label = testo.trim().replace(/\s+/g, ' ');
     const numero = (label.match(NUMERO) || [])[1];
     const base = 'c-' + (chiaro(numero || label).normalize('NFD').replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'voce');
     let id = base;
-    for (let n = 2; info.commesse.has(id) || statoAnno(annoDi(giorno)).nuove.some(c => c.id === id); n++) {
-      id = `${base}-${n}`;
-    }
+    for (let n = 2; info.commesse.has(id) || s.nuove.some(c => c.id === id); n++) id = `${base}-${n}`;
     const c = {
       id, label, codice: numero ? numero.toUpperCase() : null, cliente: null,
       colore: null, alias: [], attiva: true
     };
-    statoAnno(annoDi(giorno)).nuove.push(c);
+    s.nuove.push(c);
+    s.doc = null;
     return c;
   }
 
@@ -498,19 +726,19 @@ const ore = (() => {
   // Cerca su label, alias e codice, anche a metà parola. Prima chi combacia meglio
   // (esatto, poi dall'inizio, poi dentro), a pari merito chi ha più ore nel mese.
 
-  function oreNelMese(info, mese) {
+  function oreNelMese(info, prefisso) {
     const tot = new Map();
     if (!info) return tot;
     for (const [data, g] of info.giorni) {
-      if (!data.startsWith(mese)) continue;
+      if (!data.startsWith(prefisso)) continue;
       for (const v of g.voci || []) tot.set(v.commessaId, (tot.get(v.commessaId) || 0) + (Number(v.durata) || 0));
     }
     return tot;
   }
 
-  function proposte(info, query, idsGiorno) {
+  function proposte(info, data, query, idsGiorno) {
     const q = chiaro(query.trim());
-    const mese = oreNelMese(info, giorno.slice(0, 7));
+    const mese = oreNelMese(info, data.slice(0, 7));
     const tutte = [...info.commesse.values()].filter(c => c.attiva !== false);
     const out = [];
 
@@ -545,251 +773,23 @@ const ore = (() => {
     return { righe: out.slice(0, 30), mese };
   }
 
-  // ─────────────── disegnare
-
-  function vaiA(data) {
-    giorno = feriale(data);
-    scriviLocale(CHIAVE_GIORNO, giorno);
-    if (scelta && $('scheda-ore').open === false) scelta = null;
-    apriAnno(annoDi(giorno));
-    // La settimana può attraversare il capodanno.
-    apriAnno(annoDi(spostaLavorativo(lunedi(giorno), 4)));
-    disegna();
-  }
-
-  function disegna() {
-    disegnaTarga();
-    disegnaGiorno();
-    disegnaSettimana();
-    disegnaSlot();
-    if ($('scheda-ore').open) disegnaProposte();
-    if ($('riepilogo-ore').open) disegnaRiepilogo();
-    $('ore-annulla').disabled = storia.length === 0;
-    $('ore-rifai').disabled = futuro.length === 0;
-    $('ore-oggi').hidden = giorno === feriale(oggi());
-  }
-
-  function disegnaTarga() {
-    const targa = $('targa-ore');
-    targa.replaceChildren();
-    const info = documento(annoDi(giorno));
-    const d = daData(giorno);
-    const nomeMese = d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
-    if (!info) { targa.textContent = nomeMese; return; }
-
-    // Il mese: i giorni lavorativi del mese di calendario, otto ore ciascuno.
-    const mese = giorno.slice(0, 7);
-    let fatte = 0;
-    for (const [data, g] of info.giorni) if (data.startsWith(mese)) fatte += minutiGiorno(g);
-    let lavorativi = 0;
-    for (const x = new Date(d.getFullYear(), d.getMonth(), 1); x.getMonth() === d.getMonth(); x.setDate(x.getDate() + 1)) {
-      if (!festivo(x)) lavorativi++;
-    }
-    const obiettivo = lavorativi * GIORNATA;
-    const b = el('b', null, fmt(fatte));
-    targa.append(nomeMese.charAt(0).toUpperCase() + nomeMese.slice(1) + ' · ', b, ` / ${fmt(obiettivo)} h`);
-    if (obiettivo > fatte) targa.append(' · ', el('span', 'da-fare', `${fmt(obiettivo - fatte)} da fare`));
-    else targa.append(' · ', el('span', 'fatto', 'completo'));
-  }
-
-  function disegnaGiorno() {
-    const d = daData(giorno);
-    const testo = d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
-    $('ore-data-testo').textContent = testo.charAt(0).toUpperCase() + testo.slice(1);
-    const { info, g } = infoGiorno(giorno);
-    const tot = $('ore-totale');
-    if (!info) { tot.textContent = ''; return; }
-    const m = minutiGiorno(g);
-    tot.textContent = `${fmt(m)} / ${fmt(GIORNATA)} h`;
-    tot.className = m === GIORNATA ? 'pieno' : 'meno';
-
-    const nota = $('ore-nota');
-    nota.hidden = !(g && g.nota);
-    nota.textContent = g && g.nota ? g.nota : '';
-  }
-
-  function disegnaSettimana() {
-    const box = $('ore-settimana');
-    box.replaceChildren();
-    let data = lunedi(giorno);
-    for (let i = 0; i < 5; i++, data = spostaLavorativo(data, 1)) {
-      const d = daData(data);
-      const { info, g } = infoGiorno(data);
-      const b = el('button');
-      b.type = 'button';
-      if (data === giorno) b.setAttribute('aria-current', 'date');
-      if (data === oggi()) b.classList.add('oggi');
-      b.append(el('span', null, d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '')));
-      b.append(el('span', 'num', String(d.getDate())));
-      const m = info ? minutiGiorno(g) : null;
-      const t = el('span', 'tot ' + (m === GIORNATA ? 'pieno' : m ? 'meno' : ''), m == null ? '' : m ? fmt(m) : '—');
-      b.append(t);
-      const quale = data;
-      b.addEventListener('click', () => vaiA(quale));
-      box.append(b);
-    }
-  }
-
-  function disegnaAvviso(testo, classe, pulsante) {
-    const a = $('ore-avviso');
-    a.hidden = !testo;
-    a.className = 'ore-avviso' + (classe ? ' ' + classe : '');
-    a.replaceChildren();
-    if (!testo) return;
-    a.append(testo);
-    if (pulsante) {
-      const b = el('button', 'primario', pulsante.testo);
-      b.type = 'button';
-      b.addEventListener('click', pulsante.azione);
-      a.append(b);
-    }
-  }
-
-  function disegnaSlot() {
-    const box = $('ore-slot');
-    box.replaceChildren();
-    const anno = annoDi(giorno);
-    const s = statoAnno(anno);
-    const { info, g } = infoGiorno(giorno);
-
-    if (!info) {
-      if (s.manca) {
-        disegnaAvviso(`Non trovo il file ${percorso(anno)} sul tuo OneDrive. Se l'app sul PC salva altrove, ` +
-          `la cartella va cambiata in ORE_CONFIG; altrimenti si può crearlo adesso.`, '', {
-          testo: `Crea ore_${anno}.json`,
-          azione: () => { s.creare = true; salvaAnno(anno); onedrive.sincronizza(); }
-        });
-      } else if (s.errore) {
-        disegnaAvviso(s.errore, 'errore-ore');
-      } else {
-        disegnaAvviso('Carico le ore da OneDrive…');
-      }
-      return;
-    }
-
-    const { ore: righe, modificabile } = grigliaDi(giorno, g);
-    if (info.solaLettura) disegnaAvviso('Il file è in un formato più nuovo di questa app: le ore si possono solo guardare.', 'errore-ore');
-    else if (!modificabile) disegnaAvviso('Questa giornata ha voci che qui non si possono rappresentare (orari fuori dagli slot o più fini della mezz\'ora): modificala dal PC.');
-    else disegnaAvviso('');
-    const sola = info.solaLettura || !modificabile;
-    box.classList.toggle('sola-lettura', sola);
-
-    const ids = righe.flatMap(h => h.meta);
-    const colori = tinte(ids, id => etichettaDi(info, id));
-    const totali = new Map();
-    for (const h of righe) {
-      h.meta.forEach((c, k) => { if (c) totali.set(c, (totali.get(c) || 0) + (h.diviso ? 30 : (k === 0 ? 60 : 0))); });
-    }
-
-    let indice = 0;
-    SESSIONI.forEach((sessione, n) => {
-      if (n > 0) {
-        const p = el('div', 'pausa');
-        p.append(el('span', null, 'pausa'));
-        box.append(p);
-      }
-      const blocco = el('div', 'sessione');
-      const primo = indice;
-      const ultimo = indice + sessione.length - 1;
-      for (; indice <= ultimo; indice++) {
-        const h = righe[indice];
-        const prec = indice > primo ? righe[indice - 1] : null;
-        // Le ore di fila con la stessa voce sono un blocco: la riga dentro il blocco non
-        // ripete il nome, e il blocco dice il suo intervallo.
-        const unita = c => c && !h.diviso;
-        const continua = prec && unita(h.meta[0]) && !prec.diviso && prec.meta[0] === h.meta[0];
-        let fine = indice;
-        while (unita(h.meta[0]) && fine < ultimo && !righe[fine + 1].diviso && righe[fine + 1].meta[0] === h.meta[0]) fine++;
-
-        const riga = el('div', 'ora' + (continua ? ' dentro' : ''));
-        riga.append(el('div', 'quando', testoOra(h.inizio)));
-        const meta = el('div', 'metà');
-        const parti = h.diviso ? [0, 1] : [null];
-        for (const k of parti) {
-          const c = h.meta[k || 0];
-          const cella = el('button', 'cella' + (c ? '' : ' vuota'));
-          cella.type = 'button';
-          cella.disabled = false;
-          if (c) {
-            coloraVoce(cella, colori.get(c));
-            const tipo = assenza(etichettaDi(info, c));
-            if (tipo) cella.classList.add('assenza', tipo);
-          }
-          const scelto = scelta && scelta.ora === indice && (scelta.meta === k || (k === null && scelta.meta === null));
-          if (scelto) cella.classList.add('scelta');
-
-          if (c && !continua) {
-            cella.append(el('span', 'nome', etichettaDi(info, c)));
-            if (h.diviso) cella.append(el('span', 'intervallo', `${testoOra(h.inizio + 30 * k)}–${testoOra(h.inizio + 30 * k + 30)}`));
-            else if (fine > indice) cella.append(el('span', 'intervallo', `${testoOra(h.inizio)}–${testoOra(righe[fine].inizio + 60)}`));
-            const t = el('span', 'tot', fmt(totali.get(c)));
-            t.title = `${etichettaDi(info, c)}: ${fmt(totali.get(c))} h in tutta la giornata`;
-            cella.append(t);
-          } else if (!c) {
-            cella.append(el('span', 'nome', h.diviso ? `${testoOra(h.inizio + 30 * k)} vuota` : 'vuota'));
-          } else {
-            cella.append(el('span', 'nome'));
-          }
-          cella.setAttribute('aria-label', `${testoOra(h.inizio + 30 * (k || 0))}: ${c ? etichettaDi(info, c) : 'vuota'}`);
-
-          const quale = { ora: indice, meta: k };
-          cella.addEventListener('click', () => { if (!sola) apriScelta(quale); });
-          meta.append(cella);
-        }
-        riga.append(meta);
-        blocco.append(riga);
-      }
-      box.append(blocco);
-    });
-  }
-
-  // ─────────────── il pannello per scegliere la voce
-
-  let evidenziata = 0;
-  let righeProposte = [];
-
-  function apriScelta(quale) {
-    scelta = { ...quale };
-    $('ore-cerca').value = '';
-    evidenziata = 0;
-    disegnaProposte();
-    disegnaSlot();
-    if (!$('scheda-ore').open) $('scheda-ore').showModal();
-    // Sul PC si scrive subito; sul telefono la tastiera si apre solo toccando il campo,
-    // perché spesso basta toccare una delle voci proposte.
-    if (window.matchMedia('(pointer: fine)').matches) $('ore-cerca').focus();
-  }
-
-  function chiudiScelta() {
-    $('scheda-ore').close();
-  }
-
-  function disegnaProposte() {
-    const lista = $('ore-proposte');
+  /**
+   * Disegna l'elenco delle proposte per uno slot e restituisce le azioni, una per riga
+   * (l'ultima può essere «Nuova voce»). Lo usano il pannello del telefono e il campo
+   * del PC.
+   */
+  function disegnaElenco(lista, slot, query, evidenziata, scegliFn) {
     lista.replaceChildren();
-    const { info, g } = infoGiorno(giorno);
-    if (!info || !scelta) return;
-    const { ore: righe } = grigliaDi(giorno, g);
-    const h = righe[scelta.ora];
-    const inizio = h.inizio + (h.diviso ? 30 * (scelta.meta || 0) : 0);
-    const durata = h.diviso ? 30 : 60;
-    $('ore-sel').textContent = `${daData(giorno).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })} · ${testoOra(inizio)}–${testoOra(inizio + durata)}`;
-    $('ore-dividi').textContent = h.diviso ? 'Ora intera' : '½ ora';
-    $('ore-svuota').disabled = !(h.diviso ? h.meta[scelta.meta || 0] : h.meta[0]);
-
-    const query = $('ore-cerca').value;
-    const idsGiorno = righe.flatMap(x => x.meta).filter(Boolean);
-    const { righe: trovate, mese } = proposte(info, query, idsGiorno);
+    const { info, ore: righe } = righeDi(slot.data);
+    if (!info) return [];
+    const idsGiorno = metàDi(righe).filter(Boolean);
+    const { righe: trovate, mese } = proposte(info, slot.data, query, idsGiorno);
     const colori = tinte([...idsGiorno, ...trovate.map(t => t.c.id)], id => etichettaDi(info, id));
-    const attuale = h.diviso ? h.meta[scelta.meta || 0] : h.meta[0];
-
-    righeProposte = trovate.map(t => () => imposta(t.c.id));
+    const attuale = vociDelloSlot(slot);
     const testo = query.trim();
     const esatta = trovate.some(t => t.punti === 0);
-    if (testo && !esatta) {
-      righeProposte.push(() => imposta(nuovaCommessa(info, testo).id));
-    }
-    if (evidenziata >= righeProposte.length) evidenziata = 0;
+    const azioni = trovate.map(t => () => imposta(slot, t.c.id));
+    if (testo && !esatta) azioni.push(() => imposta(slot, nuovaCommessa(slot.data, testo).id));
 
     trovate.forEach((t, i) => {
       const li = el('li');
@@ -806,32 +806,849 @@ const ore = (() => {
       b.append(pallino, testi);
       const m = mese.get(t.c.id);
       if (m) b.append(el('span', 'h', `${fmt(m)} h nel mese`));
-      b.addEventListener('click', () => scegli(i));
+      b.addEventListener('mousedown', e => e.preventDefault());
+      b.addEventListener('click', () => scegliFn(i));
       li.append(b);
       lista.append(li);
     });
-
     if (testo && !esatta) {
       const li = el('li');
       const b = el('button', 'nuova' + (evidenziata === trovate.length ? ' attiva' : ''), `Nuova voce «${testo}»`);
       b.type = 'button';
-      b.addEventListener('click', () => scegli(trovate.length));
+      b.addEventListener('mousedown', e => e.preventDefault());
+      b.addEventListener('click', () => scegliFn(trovate.length));
       li.append(b);
       lista.append(li);
     }
     if (!testo && trovate.length === 0) {
       lista.append(el('li', 'riep-piede', 'Scrivi per cercare una commessa o crearne una nuova.'));
     }
+    return azioni;
   }
 
-  function scegli(i) {
-    const f = righeProposte[i];
+  /** La commessa che corrisponde esattamente al testo (label, alias o codice). */
+  function esatta(data, testo) {
+    const info = documento(annoDi(data));
+    const q = chiaro(testo.trim());
+    if (!info || !q) return null;
+    for (const c of info.commesse.values()) {
+      const valori = [c.label, c.codice, ...(Array.isArray(c.alias) ? c.alias : [])];
+      if (valori.some(v => v && chiaro(String(v)) === q)) return c.id;
+    }
+    return null;
+  }
+
+  // ─────────────── la ricerca
+  //
+  // Cerca su label, alias, codice e cliente in tutti gli anni che ci sono su OneDrive,
+  // e dice dove compare il risultato, giornata per giornata, con la somma delle ore.
+  // Sul PC spegne anche gli slot della griglia che non corrispondono.
+
+  let anniCaricati = false;
+  async function caricaAnniPerRicerca() {
+    if (anniCaricati || !onedrive.collegato()) return;
+    anniCaricati = true;
+    const quest = new Date().getFullYear();
+    for (let a = quest; a >= quest - 6; a--) {
+      const s = statoAnno(a);
+      if (s.testo || anniAperti.has(a)) continue;
+      try {
+        const f = await onedrive.leggiFile(percorso(a));
+        if (f) { s.testo = f.testo; s.eTag = f.eTag; s.doc = null; salvaAnno(a); }
+      } catch (_) {}
+    }
+    disegnaRisultati();
+  }
+
+  function corrisponde(c, q) {
+    if (!c || !q) return false;
+    return [c.label, c.codice, c.cliente, ...(Array.isArray(c.alias) ? c.alias : [])]
+      .some(v => v && chiaro(String(v)).includes(q));
+  }
+
+  function risultati(query) {
+    const q = chiaro(query.trim());
+    const perVoce = new Map();
+    const giorni = [];
+    let totale = 0;
+    if (!q) return { totale, perVoce: [], giorni };
+    const anniNoti = [...anni.keys()].sort((a, b) => b - a);
+    for (const anno of anniNoti) {
+      const info = documento(anno);
+      if (!info) continue;
+      const ids = new Set([...info.commesse.values()].filter(c => corrisponde(c, q)).map(c => c.id));
+      if (!ids.size) continue;
+      for (const [data, g] of info.giorni) {
+        let min = 0;
+        const voci = new Map();
+        for (const v of g.voci || []) {
+          if (!ids.has(v.commessaId)) continue;
+          const d = Number(v.durata) || 0;
+          min += d;
+          const etichetta = etichettaDi(info, v.commessaId);
+          voci.set(etichetta, (voci.get(etichetta) || 0) + d);
+          perVoce.set(etichetta, (perVoce.get(etichetta) || 0) + d);
+        }
+        if (min) { giorni.push({ data, min, voci }); totale += min; }
+      }
+    }
+    giorni.sort((a, b) => (a.data < b.data ? 1 : -1));
+    return { totale, perVoce: [...perVoce.entries()].sort((a, b) => b[1] - a[1]), giorni };
+  }
+
+  function disegnaRisultati() {
+    const box = suPc() ? $('mese-risultati') : $('ricerca-risultati');
+    const query = suPc() ? $('mese-cerca').value : $('ricerca-testo').value;
+    box.replaceChildren();
+    if (suPc()) box.hidden = !query.trim();
+    if (!query.trim()) return;
+
+    const r = risultati(query);
+    const testa = el('div', 'ris-testa');
+    testa.append(el('b', null, `${fmt(r.totale)} h`),
+      ` in ${r.giorni.length} ${r.giorni.length === 1 ? 'giornata' : 'giornate'}`);
+    if (r.perVoce.length > 1) testa.append(` · ${r.perVoce.length} voci`);
+    box.append(testa);
+    if (suPc()) $('mese-msg').textContent = `«${query.trim()}»: ${fmt(r.totale)} h in ${r.giorni.length} giornate`;
+    if (!r.giorni.length) {
+      box.append(el('p', 'riep-piede', anniCaricati ? 'Nessuna occorrenza.' : 'Nessuna occorrenza negli anni caricati.'));
+      return;
+    }
+
+    const voci = el('div', 'ris-voci');
+    for (const [etichetta, m] of r.perVoce) {
+      const riga = el('div', 'ris-voce');
+      riga.append(el('span', null, etichetta), el('span', 'n', `${fmt(m)} h`));
+      voci.append(riga);
+    }
+    box.append(voci);
+
+    const elenco = el('div', 'ris-giorni');
+    let meseCorrente = null, testaMese = null, totMese = 0;
+    const chiudiMese = () => { if (testaMese) testaMese.lastChild.textContent = `${fmt(totMese)} h`; };
+    for (const gg of r.giorni.slice(0, 400)) {
+      const m = gg.data.slice(0, 7);
+      if (m !== meseCorrente) {
+        chiudiMese();
+        meseCorrente = m;
+        totMese = 0;
+        const nome = daData(gg.data).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+        testaMese = el('div', 'ris-mese');
+        testaMese.append(el('span', null, nome.charAt(0).toUpperCase() + nome.slice(1)), el('span', 'n', ''));
+        elenco.append(testaMese);
+      }
+      totMese += gg.min;
+      const b = el('button', 'ris-giorno');
+      b.type = 'button';
+      b.append(el('span', 'quando', daData(gg.data).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })),
+        el('span', 'cosa', [...gg.voci.keys()].join(', ')), el('span', 'n', `${fmt(gg.min)} h`));
+      b.addEventListener('click', () => {
+        if (!suPc()) $('ricerca-ore').close();
+        mese = gg.data.slice(0, 7);
+        vaiA(gg.data);
+      });
+      elenco.append(b);
+    }
+    chiudiMese();
+    box.append(elenco);
+  }
+
+  let timerRicerca = null;
+  function cercaDopo(testo) {
+    clearTimeout(timerRicerca);
+    timerRicerca = setTimeout(() => {
+      ricerca = chiaro(testo.trim());
+      caricaAnniPerRicerca();
+      disegna();
+      disegnaRisultati();
+    }, 180);
+  }
+
+  // ─────────────── disegnare
+
+  function vaiA(data, { tieniScelta = false } = {}) {
+    giorno = feriale(data);
+    scriviLocale(CHIAVE_GIORNO, giorno);
+    if (!tieniScelta && scelta && scelta.data !== giorno && !$('scheda-ore').open) scelta = null;
+    if (!suPc() || !giorniGriglia(mese).includes(giorno)) mese = giorno.slice(0, 7);
+    for (const d of [...giorniGriglia(mese), ...settimanaDi(giorno)]) apriAnno(annoDi(d));
+    disegna();
+  }
+
+  /** Le 25 giornate della griglia: cinque settimane dalla prima lavorativa del mese. */
+  function giorniGriglia(m) {
+    const [y, mm] = m.split('-').map(Number);
+    const primo = new Date(y, mm - 1, 1);
+    while (festivo(primo)) primo.setDate(primo.getDate() + 1);
+    const out = [];
+    let d = lunedi(aData(primo));
+    for (let i = 0; i < 25; i++, d = spostaLavorativo(d, 1)) out.push(d);
+    return out;
+  }
+
+  function disegna() {
+    document.body.classList.toggle('ore-pc', suPc());
+    disegnaTarga();
+    // Una vista sola alla volta nel DOM: le celle dell'altra confonderebbero i clic.
+    if (suPc()) { $('ore-slot').replaceChildren(); disegnaMese(); }
+    else { $('mese-griglia').replaceChildren(); disegnaTelefono(); }
+    if ($('scheda-ore').open) disegnaProposte();
+    if ($('riepilogo-ore').open) disegnaRiepilogo();
+    for (const id of ['ore-annulla', 'mese-annulla']) $(id).disabled = storia.length === 0;
+    for (const id of ['ore-rifai', 'mese-rifai']) $(id).disabled = futuro.length === 0;
+    $('ore-incolla').disabled = !appunti || appunti.tipo !== 'giorno';
+    $('ore-oggi').hidden = giorno === feriale(oggi());
+    if ($('ore-campo').hidden === false) posizionaCampo();
+    giocaEffetti();
+  }
+
+  function disegnaTarga() {
+    const giorni = giorniGriglia(mese);
+    const nomeMese = daData(mese + '-01').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+    const testa = nomeMese.charAt(0).toUpperCase() + nomeMese.slice(1);
+    const pronti = giorni.every(d => documento(annoDi(d)));
+    for (const targa of [$('targa-ore'), $('mese-targa')]) {
+      targa.replaceChildren();
+      if (targa.id === 'targa-ore') targa.append(testa + ' · ');
+      if (!pronti) { targa.append('…'); continue; }
+      // Le 25 giornate della griglia, otto ore ciascuna: come l'app sul PC.
+      const fatte = giorni.reduce((t, d) => t + minutiDi(d), 0);
+      const obiettivo = giorni.length * GIORNATA;
+      targa.append(el('b', null, fmt(fatte)), ` / ${fmt(obiettivo)} h`);
+      if (obiettivo > fatte) targa.append(' · ', el('span', 'da-fare', `${fmt(obiettivo - fatte)} da fare`));
+      else targa.append(' · ', el('span', 'fatto', 'completo'));
+    }
+  }
+
+  // ─────────────── una giornata, sul telefono o in una colonna del PC
+
+  function disegnaGiornata(data, box, { compatto = false } = {}) {
+    box.replaceChildren();
+    const { info, ore: righe, modificabile } = righeDi(data);
+    if (!info) return { info, modificabile };
+    const sola = info.solaLettura || !modificabile;
+    box.classList.toggle('sola-lettura', sola);
+
+    const H = metàDi(righe);
+    const colori = tinte(H, id => etichettaDi(info, id));
+    const totali = new Map();
+    for (const id of H) if (id) totali.set(id, (totali.get(id) || 0) + 30);
+    const spenta = id => ricerca && !(id && corrisponde(info.commesse.get(id), ricerca));
+
+    let indice = 0;
+    SESSIONI.forEach((sessione, n) => {
+      if (n > 0) {
+        const p = el('div', 'pausa');
+        if (!compatto) p.append(el('span', null, 'pausa'));
+        box.append(p);
+      }
+      const blocco = el('div', 'sessione');
+      const primo = indice, ultimo = indice + sessione.length - 1;
+      for (; indice <= ultimo; indice++) {
+        const h = righe[indice];
+        const prec = indice > primo ? righe[indice - 1] : null;
+        // Le ore di fila con la stessa voce sono un blocco: le righe dentro il blocco
+        // non ripetono il nome, e la prima dice l'intervallo.
+        const continua = prec && h.meta[0] && !h.diviso && !prec.diviso && prec.meta[0] === h.meta[0];
+        let fine = indice;
+        while (h.meta[0] && !h.diviso && fine < ultimo && !righe[fine + 1].diviso && righe[fine + 1].meta[0] === h.meta[0]) fine++;
+
+        const riga = el('div', 'ora' + (continua ? ' dentro' : ''));
+        riga.append(el('div', 'quando', testoOra(h.inizio)));
+        const metà = el('div', 'metà');
+        for (const k of h.diviso ? [0, 1] : [null]) {
+          const c = h.meta[k || 0];
+          const cella = el('div', 'cella' + (c ? '' : ' vuota'));
+          cella.dataset.data = data;
+          cella.dataset.ora = String(indice);
+          cella.dataset.meta = k == null ? '' : String(k);
+          cella.tabIndex = -1;
+          cella.setAttribute('role', 'button');
+          if (c) {
+            coloraVoce(cella, colori.get(c));
+            const tipo = assenza(etichettaDi(info, c));
+            if (tipo) cella.classList.add('assenza', tipo);
+          }
+          if (spenta(c)) cella.classList.add('spenta');
+          if (scelta && scelta.data === data && scelta.ora === indice && (scelta.meta ?? null) === k) cella.classList.add('scelta');
+
+          const da = h.inizio + 30 * (k || 0);
+          const a = h.diviso ? da + 30 : righe[fine].inizio + 60;
+          if (c && !continua) {
+            cella.append(el('span', 'nome', etichettaDi(info, c)));
+            if (!compatto && (h.diviso || fine > indice)) cella.append(el('span', 'intervallo', `${testoOra(da)}–${testoOra(a)}`));
+            const t = el('span', 'tot', fmt(totali.get(c)));
+            cella.append(t);
+            cella.title = `${etichettaDi(info, c)} · ${testoOra(da)}–${testoOra(a)} · ${fmt(totali.get(c))} h in tutta la giornata`;
+          } else if (!c) {
+            cella.append(el('span', 'nome', compatto ? '' : (h.diviso ? `${testoOra(da)} vuota` : 'vuota')));
+          } else {
+            cella.title = `${etichettaDi(info, c)} · ${fmt(totali.get(c))} h in tutta la giornata`;
+          }
+
+          // La presa per allungare: al centro del bordo inferiore, sull'ultima cella del blocco.
+          if (c && !sola) {
+            const ultimaMetà = metàDiCella(h, indice, k).slice(-1)[0];
+            if (ultimaMetà === 15 || ultimaMetà === 7 || H[ultimaMetà + 1] !== c) cella.append(el('span', 'presa'));
+          }
+          cella.setAttribute('aria-label', `${testoOra(da)}: ${c ? etichettaDi(info, c) : 'vuota'}`);
+          metà.append(cella);
+        }
+        riga.append(metà);
+        blocco.append(riga);
+      }
+      box.append(blocco);
+    });
+    return { info, modificabile };
+  }
+
+  // La vista accorpata: una riga per voce con le ore sommate, alta in proporzione,
+  // con la stessa scala degli slot. Si somma per singola giornata.
+  function disegnaAccorpata(data, box) {
+    box.replaceChildren();
+    const { info, g } = infoGiorno(data);
+    if (!info) return;
+    const tot = new Map();
+    for (const v of (g && g.voci) || []) tot.set(v.commessaId, (tot.get(v.commessaId) || 0) + (Number(v.durata) || 0));
+    const voci = [...tot.entries()].sort((a, b) => b[1] - a[1] ||
+      etichettaDi(info, a[0]).localeCompare(etichettaDi(info, b[0]), 'it'));
+    const colori = tinte(voci.map(v => v[0]), id => etichettaDi(info, id));
+    const corpo = el('div', 'accorpata');
+    for (const [id, m] of voci) {
+      const r = el('div', 'cella accorpo');
+      coloraVoce(r, colori.get(id));
+      const tipo = assenza(etichettaDi(info, id));
+      if (tipo) r.classList.add('assenza', tipo);
+      if (ricerca && !corrisponde(info.commesse.get(id), ricerca)) r.classList.add('spenta');
+      r.style.height = `calc(var(--ora) * ${m / 60})`;
+      r.append(el('span', 'nome', etichettaDi(info, id)), el('span', 'tot', fmt(m)));
+      corpo.append(r);
+    }
+    box.append(corpo);
+  }
+
+  // ─────────────── il telefono: una giornata per schermata
+
+  function disegnaTelefono() {
+    const d = daData(giorno);
+    const testo = d.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+    $('ore-data-testo').textContent = testo.charAt(0).toUpperCase() + testo.slice(1);
+    const { info, g } = infoGiorno(giorno);
+    const tot = $('ore-totale');
+    const m = minutiGiorno(g);
+    tot.textContent = info ? `${fmt(m)} / ${fmt(GIORNATA)} h` : '';
+    tot.className = m === GIORNATA ? 'pieno' : 'meno';
+    const nota = $('ore-nota');
+    nota.hidden = !(g && g.nota);
+    nota.textContent = g && g.nota ? g.nota : '';
+
+    disegnaSettimana();
+
+    const anno = annoDi(giorno);
+    const s = statoAnno(anno);
+    if (!info) {
+      $('ore-slot').replaceChildren();
+      avvisoAnno(anno, s);
+    } else {
+      const { modificabile } = disegnaGiornata(giorno, $('ore-slot'));
+      if (info.solaLettura) disegnaAvviso('Il file è in un formato più nuovo di questa app: le ore si possono solo guardare.', 'errore-ore');
+      else if (!modificabile) disegnaAvviso('Questa giornata ha voci che qui non si possono rappresentare (orari fuori dagli slot o più fini della mezz\'ora): modificala dal PC.');
+      else disegnaAvviso('');
+    }
+    adattaTelefono();
+  }
+
+  function avvisoAnno(anno, s, box = $('ore-avviso')) {
+    if (s.manca) {
+      disegnaAvviso(`Non trovo il file ${percorso(anno)} sul tuo OneDrive. Se l'app sul PC salva altrove, ` +
+        `la cartella va cambiata in ORE_CONFIG; altrimenti si può crearlo adesso.`, '', {
+        testo: `Crea ore_${anno}.json`,
+        azione: () => { s.creare = true; salvaAnno(anno); onedrive.sincronizza(); }
+      }, box);
+    } else if (s.errore) {
+      disegnaAvviso(s.errore, 'errore-ore', null, box);
+    } else {
+      disegnaAvviso('Carico le ore da OneDrive…', '', null, box);
+    }
+  }
+
+  // L'altezza delle righe si adatta perché la giornata intera stia nello schermo senza
+  // scorrere: si misura dove comincia e quanto resta sotto.
+  function adattaTelefono() {
+    const slot = $('ore-slot');
+    if (!slot.offsetParent) return;
+    const sopra = slot.getBoundingClientRect().top + window.scrollY;
+    const sotto = $('ore-comandi').offsetHeight + 12 +
+      parseFloat(getComputedStyle(document.body).paddingBottom || '0');
+    const pausa = 30, bordi = 6;
+    const h = Math.floor((window.innerHeight - sopra - sotto - pausa - bordi) / 8);
+    slot.style.setProperty('--ora', `${Math.max(30, Math.min(52, h))}px`);
+  }
+
+  function disegnaSettimana() {
+    const box = $('ore-settimana');
+    box.replaceChildren();
+    for (const data of settimanaDi(giorno)) {
+      const d = daData(data);
+      const { info, g } = infoGiorno(data);
+      const b = el('button');
+      b.type = 'button';
+      if (data === giorno) b.setAttribute('aria-current', 'date');
+      if (data === oggi()) b.classList.add('oggi');
+      b.append(el('span', null, d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '')));
+      b.append(el('span', 'num', String(d.getDate())));
+      const m = info ? minutiGiorno(g) : null;
+      b.append(el('span', 'tot ' + (m === GIORNATA ? 'pieno' : m ? 'meno' : ''), m == null ? '' : m ? fmt(m) : '—'));
+      b.addEventListener('click', () => vaiA(data));
+      box.append(b);
+    }
+  }
+
+  function disegnaAvviso(testo, classe, pulsante, box = $('ore-avviso')) {
+    box.hidden = !testo;
+    box.className = 'ore-avviso' + (classe ? ' ' + classe : '');
+    box.replaceChildren();
+    if (!testo) return;
+    box.append(testo);
+    if (pulsante) {
+      const b = el('button', 'primario', pulsante.testo);
+      b.type = 'button';
+      b.addEventListener('click', pulsante.azione);
+      box.append(b);
+    }
+  }
+
+  // ─────────────── il PC: la griglia del mese
+
+  function disegnaMese() {
+    const nome = daData(mese + '-01').toLocaleDateString('it-IT', { month: 'long' });
+    $('mese-nome').textContent = nome.charAt(0).toUpperCase() + nome.slice(1);
+    $('mese-anno').textContent = mese.slice(0, 4);
+    $('mese-accorpa').setAttribute('aria-pressed', String(accorpata));
+
+    const giorni = giorniGriglia(mese);
+    const anno = annoDi(giorni[12]);
+    const s = statoAnno(anno);
+    if (documento(anno)) disegnaAvviso('', '', null, $('mese-avviso'));
+    else avvisoAnno(anno, s, $('mese-avviso'));
+
+    const griglia = $('mese-griglia');
+    griglia.replaceChildren();
+    for (let w = 0; w < 5; w++) {
+      const riga = el('div', 'settimana');
+      riga.dataset.lunedi = giorni[w * 5];
+      for (const data of giorni.slice(w * 5, w * 5 + 5)) {
+        const d = daData(data);
+        const col = el('div', 'giorno-col');
+        col.dataset.giorno = data;
+        if (data.slice(0, 7) !== mese) col.classList.add('fuori');
+        if (!scelta && data === giorno) col.classList.add('giorno-scelto');
+
+        const { info, g } = infoGiorno(data);
+        const testa = el('button', 'giorno-testa');
+        testa.type = 'button';
+        testa.dataset.giorno = data;
+        const quando = el('span', 'quando');
+        quando.append(el('span', null, d.toLocaleDateString('it-IT', { weekday: 'short' }).replace('.', '').toUpperCase() + ' '));
+        quando.append(el('span', 'num' + (data === oggi() ? ' oggi' : ''), String(d.getDate())));
+        quando.append(el('span', null, ' ' + d.toLocaleDateString('it-IT', { month: 'short' }).replace('.', '').toUpperCase()));
+        testa.append(quando);
+        if (g && g.nota) {
+          const n = el('span', 'segno-nota', '✎');
+          n.title = g.nota;
+          testa.append(n);
+        }
+        const m = info ? minutiGiorno(g) : null;
+        testa.append(el('span', 'tot ' + (m === GIORNATA ? 'pieno' : 'meno'), m == null ? '' : fmt(m)));
+        col.append(testa);
+
+        const corpo = el('div', 'giorno-corpo');
+        if (accorpata) disegnaAccorpata(data, corpo);
+        else disegnaGiornata(data, corpo, { compatto: true });
+        col.append(corpo);
+        riga.append(col);
+      }
+      griglia.append(riga);
+    }
+    adattaMese();
+  }
+
+  // La griglia sta sempre tutta nella finestra: l'altezza di uno slot si ricava da
+  // quella che resta, cinque settimane di otto ore più testate e pause.
+  function adattaMese() {
+    const g = $('mese-griglia');
+    const ora = parseFloat(getComputedStyle(g).getPropertyValue('--ora')) || 20;
+    const r = g.getBoundingClientRect();
+    // Quello che non sono slot (testate, pause, bordi, spazi) si misura e si toglie.
+    const fisso = r.height - 40 * ora;
+    const resto = window.innerHeight - (r.top + window.scrollY) - 12;
+    const h = Math.floor((resto - fisso) / 40);
+    g.style.setProperty('--ora', `${Math.max(14, Math.min(44, h))}px`);
+  }
+
+  // ─────────────── il pannello per scegliere la voce (telefono)
+
+  let evidenziata = 0;
+  let azioniPannello = [];
+
+  function apriScelta(slot) {
+    scelta = { ...slot };
+    $('ore-cerca').value = '';
+    evidenziata = 0;
+    disegna();
+    if (!$('scheda-ore').open) $('scheda-ore').showModal();
+    disegnaProposte();
+    if (window.matchMedia('(pointer: fine)').matches) $('ore-cerca').focus();
+  }
+
+  function disegnaProposte() {
+    if (!scelta) return;
+    const { ore: righe } = righeDi(scelta.data);
+    const h = righe[scelta.ora];
+    const inizio = h.inizio + (h.diviso ? 30 * (scelta.meta || 0) : 0);
+    const durata = h.diviso ? 30 : 60;
+    $('ore-sel').textContent = `${daData(scelta.data).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })} · ${testoOra(inizio)}–${testoOra(inizio + durata)}`;
+    $('ore-dividi').textContent = h.diviso ? 'Ora intera' : '½ ora';
+    const piena = !!vociDelloSlot(scelta);
+    $('ore-svuota').disabled = !piena;
+    $('ore-copia').disabled = !piena;
+    $('ore-incolla-slot').disabled = !appunti || appunti.tipo !== 'slot';
+    azioniPannello = disegnaElenco($('ore-proposte'), scelta, $('ore-cerca').value, evidenziata, scegliPannello);
+    if (evidenziata >= azioniPannello.length) evidenziata = 0;
+  }
+
+  function scegliPannello(i) {
+    const f = azioniPannello[i];
     if (!f) return;
     f();
     $('ore-cerca').value = '';
     evidenziata = 0;
-    if (!avanza()) { chiudiScelta(); return; }
+    const dopo = slotDopo(scelta);
+    if (!dopo) { $('scheda-ore').close(); disegna(); return; }
+    scelta = dopo;
     disegna();
+  }
+
+  // ─────────────── il campo sopra lo slot (PC)
+  //
+  // Cominciare a scrivere apre il campo con quella lettera dentro e sostituisce la
+  // voce; Invio o F2 lo apre con la voce che c'è, il cursore in fondo e niente
+  // selezionato. Invio conferma e passa allo slot dopo restando in modifica.
+
+  let azioniCampo = [];
+  let evidenziataCampo = 0;
+
+  function apriCampo(testo) {
+    if (!scelta) return;
+    const { info, modificabile } = righeDi(scelta.data);
+    if (!info || info.solaLettura || !modificabile) return;
+    const campo = $('ore-campo');
+    campo.hidden = false;
+    $('ore-campo-lista').hidden = false;
+    const input = $('ore-campo-testo');
+    input.value = testo;
+    evidenziataCampo = 0;
+    posizionaCampo();
+    disegnaCampo();
+    input.focus();
+    input.setSelectionRange(testo.length, testo.length);
+  }
+
+  function chiudiCampo() {
+    $('ore-campo').hidden = true;
+    const c = scelta && cellaDi(scelta.data, scelta.ora, scelta.meta);
+    if (c) c.focus({ preventScroll: true });
+  }
+
+  function posizionaCampo() {
+    const c = scelta && cellaDi(scelta.data, scelta.ora, scelta.meta);
+    if (!c) { $('ore-campo').hidden = true; return; }
+    const r = c.getBoundingClientRect();
+    const campo = $('ore-campo');
+    const largo = Math.max(r.width, 300);
+    campo.style.left = `${Math.min(r.left, window.innerWidth - largo - 8)}px`;
+    campo.style.top = `${r.top}px`;
+    campo.style.width = `${largo}px`;
+    const lista = $('ore-campo-lista');
+    // La tendina va sotto, o sopra se sotto non c'è posto.
+    const sotto = window.innerHeight - r.bottom;
+    lista.classList.toggle('sopra', sotto < 260 && r.top > sotto);
+  }
+
+  function disegnaCampo() {
+    azioniCampo = disegnaElenco($('ore-campo-lista'), scelta, $('ore-campo-testo').value, evidenziataCampo, scegliCampo);
+    if (evidenziataCampo >= azioniCampo.length) evidenziataCampo = 0;
+  }
+
+  function scegliCampo(i) {
+    const testo = $('ore-campo-testo').value;
+    if (i == null) {
+      // Invio: il testo esatto di una commessa, se c'è; altrimenti la proposta evidenziata.
+      const id = esatta(scelta.data, testo);
+      if (!testo.trim()) imposta(scelta, null);
+      else if (id) imposta(scelta, id);
+      else if (azioniCampo[evidenziataCampo]) azioniCampo[evidenziataCampo]();
+      else return;
+    } else if (azioniCampo[i]) {
+      azioniCampo[i]();
+    }
+    const dopo = slotDopo(scelta);
+    if (!dopo) { disegna(); chiudiCampo(); return; }
+    scelta = dopo;
+    $('ore-campo-testo').value = '';
+    evidenziataCampo = 0;
+    disegna();
+    posizionaCampo();
+    disegnaCampo();
+  }
+
+  // ─────────────── il trascinamento
+  //
+  // Due gesti, distinti da dove si prende il blocco: dalla presa al centro del bordo
+  // inferiore si allunga o si accorcia; dal corpo si porta altrove (stesso giorno:
+  // sposta; altro giorno: copia). Col mouse parte muovendosi, col dito dopo una
+  // pressione lunga. Esc lo annulla.
+
+  let gesto = null;
+  let ignoraFino = 0;   // dopo un trascinamento, il clic che lo chiude non conta
+
+  function metàDaCella(cella, y) {
+    const data = cella.dataset.data, i = Number(cella.dataset.ora);
+    const k = cella.dataset.meta === '' ? null : Number(cella.dataset.meta);
+    const h = righeDi(data).ore[i];
+    const metà = metàDiCella(h, i, k);
+    if (metà.length === 1) return { data, m: metà[0] };
+    const r = cella.getBoundingClientRect();
+    return { data, m: y < r.top + r.height / 2 ? metà[0] : metà[1] };
+  }
+
+  function metàDaPunto(x, y) {
+    const e = document.elementFromPoint(x, y);
+    const cella = e && e.closest('.cella[data-data]');
+    return cella ? metàDaCella(cella, y) : null;
+  }
+
+  function rettMetà(data, m) {
+    const i = m >> 1, k = m & 1;
+    const intera = cellaDi(data, i, null);
+    if (intera) {
+      const r = intera.getBoundingClientRect();
+      const meta = r.height / 2;
+      return { left: r.left, width: r.width, top: r.top + k * meta, height: meta, bottom: r.top + (k + 1) * meta };
+    }
+    const c = cellaDi(data, i, k);
+    return c ? c.getBoundingClientRect() : null;
+  }
+
+  function giùPuntatore(e) {
+    const cella = e.target.closest('.cella[data-data]');
+    if (!cella || e.button > 0 || accorpata) return;
+    const { info, modificabile, ore: righe } = righeDi(cella.dataset.data);
+    if (!info || info.solaLettura || !modificabile) return;
+    const { data, m } = metàDaCella(cella, e.clientY);
+    const c = corsa(metàDi(righe), m);
+    if (!c) return;
+
+    if (e.target.closest('.presa')) {
+      e.preventDefault();
+      gesto = { tipo: 'allunga', data, corsa: c, fine: c.b, puntatore: e.pointerId };
+      return;
+    }
+    gesto = {
+      tipo: 'forse', data, corsa: c, presa: m - c.a, x: e.clientX, y: e.clientY,
+      dito: e.pointerType !== 'mouse', puntatore: e.pointerId
+    };
+    if (gesto.dito) {
+      gesto.timer = setTimeout(() => {
+        if (gesto && gesto.tipo === 'forse') { iniziaSposta(); if (navigator.vibrate) navigator.vibrate(12); }
+      }, 380);
+    }
+  }
+
+  function iniziaSposta() {
+    gesto.tipo = 'sposta';
+    document.body.classList.add('trascina');
+    const f = $('ore-fantasma');
+    f.hidden = false;
+    const { info } = infoGiorno(gesto.data);
+    f.textContent = etichettaDi(info, gesto.corsa.id);
+    aggiornaFantasma(gesto.x, gesto.y);
+  }
+
+  function aggiornaFantasma(x, y) {
+    const f = $('ore-fantasma');
+    const sotto = metàDaPunto(x, y);
+    const lunghezza = gesto.corsa.b - gesto.corsa.a + 1;
+    gesto.dest = null;
+    if (!sotto) { f.classList.add('fuori'); return; }
+    const t = dove(sotto.m, gesto.presa, lunghezza);
+    const a = rettMetà(sotto.data, t), b = rettMetà(sotto.data, t + lunghezza - 1);
+    if (!a || !b) return;
+    // Il fantasma non segue la mano: si aggancia al riquadro dove il blocco finirà.
+    f.classList.remove('fuori');
+    f.style.left = `${a.left}px`;
+    f.style.top = `${a.top}px`;
+    f.style.width = `${a.width}px`;
+    f.style.height = `${b.bottom - a.top}px`;
+    gesto.dest = { data: sotto.data, t };
+    f.classList.toggle('copia', sotto.data !== gesto.data);
+  }
+
+  function muoviPuntatore(e) {
+    if (!gesto || e.pointerId !== gesto.puntatore) return;
+    if (gesto.tipo === 'forse') {
+      const d = Math.hypot(e.clientX - gesto.x, e.clientY - gesto.y);
+      if (d > (gesto.dito ? 10 : 5)) {
+        if (gesto.dito) { clearTimeout(gesto.timer); gesto = null; return; }   // era uno scorrimento
+        iniziaSposta();
+      }
+      return;
+    }
+    if (gesto.tipo === 'sposta') { aggiornaFantasma(e.clientX, e.clientY); return; }
+    if (gesto.tipo === 'allunga') {
+      const [, fineSessione] = limiti(gesto.corsa.a);
+      let fine = gesto.corsa.a;
+      for (let m = gesto.corsa.a; m <= fineSessione; m++) {
+        const r = rettMetà(gesto.data, m);
+        if (r && e.clientY >= r.top) fine = m;
+      }
+      if (fine === gesto.fine) return;
+      const tacche = Math.abs(fine - gesto.fine);
+      gesto.fine = fine;
+      const H = metàDi(grigliaDi(gesto.data, infoGiorno(gesto.data).g).ore);
+      anteprima = { data: gesto.data, H: allunga(H, gesto.corsa, fine) };
+      disegna();
+      const r = rettMetà(gesto.data, fine);
+      if (r) effetti.gioca('misura', r, { tacche });
+    }
+  }
+
+  function suPuntatore(e) {
+    if (!gesto || e.pointerId !== gesto.puntatore) return;
+    const g = gesto;
+    clearTimeout(g.timer);
+    gesto = null;
+    document.body.classList.remove('trascina');
+    $('ore-fantasma').hidden = true;
+
+    if (g.tipo === 'allunga') {
+      ignoraFino = performance.now() + 400;
+      const H = anteprima && anteprima.H;
+      anteprima = null;
+      if (H) scriviMetà(g.data, H);
+      disegna();
+    } else if (g.tipo === 'sposta') {
+      ignoraFino = performance.now() + 400;
+      if (!g.dest) return;
+      const lunghezza = g.corsa.b - g.corsa.a + 1;
+      const H = metàDi(righeDi(g.dest.data).ore);
+      const stesso = g.dest.data === g.data;
+      const N = stesso ? sposta(H, g.corsa, g.dest.t) : copiaIn(H, g.corsa.id, lunghezza, g.dest.t);
+      if (!N) { avvisa(stesso ? 'Lì non ci sta per intero: non si sposta.' : 'Lì è tutto occupato.'); return; }
+      scriviMetà(g.dest.data, N);
+      const ora = g.dest.t >> 1;
+      effetto('scrivi', () => cellaDi(g.dest.data, ora, righeDi(g.dest.data).ore[ora].diviso ? (g.dest.t & 1) : null));
+      if (!stesso) avvisa('Copiato.');
+      disegna();
+    }
+  }
+
+  function annullaGesto() {
+    if (!gesto) return false;
+    clearTimeout(gesto.timer);
+    gesto = null;
+    anteprima = null;
+    document.body.classList.remove('trascina');
+    $('ore-fantasma').hidden = true;
+    disegna();
+    return true;
+  }
+
+  function clic(e) {
+    if (performance.now() < ignoraFino) return;
+    const testa = e.target.closest('.giorno-testa');
+    if (testa) {
+      scelta = null;
+      giorno = testa.dataset.giorno;
+      scriviLocale(CHIAVE_GIORNO, giorno);
+      disegna();
+      return;
+    }
+    const cella = e.target.closest('.cella[data-data]');
+    if (!cella) return;
+    const slot = {
+      data: cella.dataset.data, ora: Number(cella.dataset.ora),
+      meta: cella.dataset.meta === '' ? null : Number(cella.dataset.meta)
+    };
+    const { info, modificabile } = righeDi(slot.data);
+    if (!info) return;
+    if (suPc()) {
+      scelta = slot;
+      giorno = slot.data;
+      chiudiCampo();
+      disegna();
+      const c = cellaDi(slot.data, slot.ora, slot.meta);
+      if (c) c.focus({ preventScroll: true });
+    } else if (!info.solaLettura && modificabile) {
+      apriScelta(slot);
+    }
+  }
+
+  // ─────────────── la tastiera (PC), come in un foglio di calcolo
+
+  function tasto(e) {
+    if (!document.body.classList.contains('vista-ore')) return;
+    if (e.key === 'Escape' && annullaGesto()) { e.preventDefault(); return; }
+    if (document.querySelector('dialog[open]')) return;
+    if (e.target.closest('input, textarea')) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+
+    if (ctrl && k === 'z' && !e.shiftKey) { e.preventDefault(); annulla(); return; }
+    if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); rifai(); return; }
+
+    if (!suPc()) {
+      if (!ctrl && e.key === 'ArrowLeft') vaiA(spostaLavorativo(giorno, -1));
+      else if (!ctrl && e.key === 'ArrowRight') vaiA(spostaLavorativo(giorno, 1));
+      return;
+    }
+
+    if (e.key === 'F4') { e.preventDefault(); accorpata = !accorpata; disegna(); return; }
+    if (ctrl && k === 'c') { e.preventDefault(); copia({ giornata: e.shiftKey }); return; }
+    if (ctrl && k === 'v') { e.preventDefault(); incolla(); return; }
+
+    if (e.key.startsWith('Arrow')) {
+      e.preventDefault();
+      if (!scelta) { scelta = { data: giorno, ora: 0, meta: righeDi(giorno).ore[0].diviso ? 0 : null }; disegna(); return; }
+      let dopo = null;
+      if (e.key === 'ArrowDown') dopo = slotDopo(scelta, 1);
+      if (e.key === 'ArrowUp') dopo = slotDopo(scelta, -1);
+      if (e.key === 'ArrowLeft') dopo = slotAccanto(scelta, -1);
+      if (e.key === 'ArrowRight') dopo = slotAccanto(scelta, 1);
+      if (dopo) {
+        scelta = dopo;
+        if (!giorniGriglia(mese).includes(dopo.data)) mese = dopo.data.slice(0, 7);
+        vaiA(dopo.data, { tieniScelta: true });
+        const c = cellaDi(scelta.data, scelta.ora, scelta.meta);
+        if (c) c.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (e.key === 'Escape') { scelta = null; disegna(); return; }
+    if (!scelta || accorpata) return;
+
+    if (ctrl && k === 'd') { e.preventDefault(); dividi(scelta); disegna(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); imposta(scelta, null); disegna(); return; }
+    if (e.key === 'Enter' || e.key === 'F2') {
+      e.preventDefault();
+      const id = vociDelloSlot(scelta);
+      apriCampo(id ? etichettaDi(infoGiorno(scelta.data).info, id) : '');
+      return;
+    }
+    if (!ctrl && !e.altKey && e.key.length === 1 && e.key !== ' ') {
+      e.preventDefault();
+      apriCampo(e.key);
+    }
   }
 
   // ─────────────── il riepilogo
@@ -839,43 +1656,49 @@ const ore = (() => {
   let perimetro = 'mese', vista = 'commessa';
 
   function disegnaRiepilogo() {
-    const info = documento(annoDi(giorno));
     const righe = $('riep-righe');
     righe.replaceChildren();
     $('riep-perimetro').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === perimetro)));
     $('riep-vista').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === vista)));
-    if (!info) { $('riep-sotto').textContent = 'Le ore non sono ancora arrivate da OneDrive.'; return; }
 
-    const d = daData(giorno);
-    const prefisso = perimetro === 'mese' ? giorno.slice(0, 7) : giorno.slice(0, 4);
-    const nome = perimetro === 'mese'
-      ? d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
-      : String(d.getFullYear());
+    // Mese: le 25 giornate della griglia. Anno: l'anno del giorno guardato.
+    const giorniMese = new Set(giorniGriglia(mese));
+    const anno = perimetro === 'mese' ? null : Number(mese.slice(0, 4));
+    const docs = perimetro === 'mese'
+      ? [...new Set([...giorniMese].map(annoDi))].map(documento)
+      : [documento(anno)];
+    if (docs.some(d => !d)) { $('riep-sotto').textContent = 'Le ore non sono ancora arrivate da OneDrive.'; return; }
+    const dentro = data => (perimetro === 'mese' ? giorniMese.has(data) : annoDi(data) === anno);
+
+    const nomeMese = daData(mese + '-01').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+    const nome = perimetro === 'mese' ? nomeMese : String(anno);
     const soloNumerate = $('riep-numerate').checked;
-
     const tot = new Map();
     let totale = 0, senzaNumero = 0;
-    for (const [data, g] of info.giorni) {
-      if (!data.startsWith(prefisso)) continue;
-      for (const v of g.voci || []) {
-        const c = info.commesse.get(v.commessaId);
-        const m = Number(v.durata) || 0;
-        if (!c || !c.codice) senzaNumero += m;
-        if (soloNumerate && !(c && c.codice)) continue;
-        const chiave = vista === 'commessa' ? v.commessaId : (c && c.cliente) || '';
-        tot.set(chiave, (tot.get(chiave) || 0) + m);
-        totale += m;
+    const etichette = new Map();
+    for (const info of docs) {
+      for (const [data, g] of info.giorni) {
+        if (!dentro(data)) continue;
+        for (const v of g.voci || []) {
+          const c = info.commesse.get(v.commessaId);
+          const m = Number(v.durata) || 0;
+          if (!c || !c.codice) senzaNumero += m;
+          if (soloNumerate && !(c && c.codice)) continue;
+          const chiave = vista === 'commessa' ? v.commessaId : (c && c.cliente) || '';
+          etichette.set(chiave, vista === 'commessa' ? etichettaDi(info, v.commessaId) : (chiave || 'senza cliente'));
+          tot.set(chiave, (tot.get(chiave) || 0) + m);
+          totale += m;
+        }
       }
     }
 
     $('riep-sotto').textContent = `${nome.charAt(0).toUpperCase() + nome.slice(1)} · ${fmt(totale)} h`;
     const ordinate = [...tot.entries()].sort((a, b) => b[1] - a[1] ||
-      String(a[0]).localeCompare(String(b[0]), 'it'));
-    const colori = tinte(ordinate.map(([k]) => k), k => vista === 'commessa' ? etichettaDi(info, k) : String(k || 'senza cliente'));
+      String(etichette.get(a[0])).localeCompare(String(etichette.get(b[0])), 'it'));
+    const colori = tinte(ordinate.map(([k]) => k), k => etichette.get(k));
     for (const [k, m] of ordinate) {
       const r = el('div', 'riep-riga');
-      const etichetta = vista === 'commessa' ? etichettaDi(info, k) : (k || 'senza cliente');
-      r.append(el('span', null, etichetta), el('span', 'n', `${fmt(m)} h`),
+      r.append(el('span', null, etichette.get(k)), el('span', 'n', `${fmt(m)} h`),
         el('span', 'p', `${Math.round((m / totale) * 100)}%`));
       const barra = el('span', 'barra');
       const i = el('i');
@@ -887,16 +1710,16 @@ const ore = (() => {
     }
     if (!ordinate.length) righe.append(el('p', 'riep-piede', 'Nessuna ora in questo periodo.'));
 
-    // In fondo: le ore lavorative ancora vuote fino a oggi e le voci senza numero.
     let vuote = 0;
     const fino = oggi();
-    const x = perimetro === 'mese' ? new Date(d.getFullYear(), d.getMonth(), 1) : new Date(d.getFullYear(), 0, 1);
-    for (; aData(x).startsWith(prefisso) && aData(x) <= fino; x.setDate(x.getDate() + 1)) {
-      if (festivo(x)) continue;
-      vuote += Math.max(0, GIORNATA - minutiGiorno(info.giorni.get(aData(x))));
+    if (perimetro === 'mese') {
+      for (const d of giorniMese) if (d <= fino) vuote += Math.max(0, GIORNATA - minutiDi(d));
+    } else {
+      for (const x = new Date(anno, 0, 1); x.getFullYear() === anno && aData(x) <= fino; x.setDate(x.getDate() + 1)) {
+        if (!festivo(x)) vuote += Math.max(0, GIORNATA - minutiDi(aData(x)));
+      }
     }
-    $('riep-piede').textContent = `Ore vuote nei giorni lavorativi fino a oggi: ${fmt(vuote)} h · ` +
-      `voci senza numero di commessa: ${fmt(senzaNumero)} h`;
+    $('riep-piede').textContent = `Slot vuoti fino a oggi: ${fmt(vuote)} h · voci senza numero di commessa: ${fmt(senzaNumero)} h`;
   }
 
   // ─────────────── le schede Ore e Laser
@@ -908,6 +1731,7 @@ const ore = (() => {
     document.querySelectorAll('.schede button').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.scheda === nome)));
     scriviLocale(CHIAVE_SCHEDA, nome);
+    if (nome === 'ore') disegna();
   }
 
   // ─────────────── avvio
@@ -915,46 +1739,137 @@ const ore = (() => {
   function avvia() {
     document.querySelectorAll('.schede button').forEach(b =>
       b.addEventListener('click', () => mostraScheda(b.dataset.scheda)));
-    mostraScheda(leggi(CHIAVE_SCHEDA) === 'laser' ? 'laser' : 'ore');
 
+    // Telefono
     $('ore-prima').addEventListener('click', () => vaiA(spostaLavorativo(giorno, -1)));
     $('ore-dopo').addEventListener('click', () => vaiA(spostaLavorativo(giorno, 1)));
     $('ore-oggi').addEventListener('click', () => vaiA(oggi()));
     $('ore-annulla').addEventListener('click', annulla);
     $('ore-rifai').addEventListener('click', rifai);
+    $('ore-copia-giorno').addEventListener('click', () => { scelta = null; copia({ giornata: true }); });
+    $('ore-incolla').addEventListener('click', () => { scelta = null; incolla(); });
+    $('ore-cerca-apri').addEventListener('click', () => {
+      $('ricerca-ore').showModal();
+      $('ricerca-testo').focus();
+      disegnaRisultati();
+    });
+    $('ricerca-testo').addEventListener('input', e => cercaDopo(e.target.value));
+    $('ricerca-ore').addEventListener('close', () => {
+      if (!$('ricerca-testo').value.trim()) { ricerca = ''; disegna(); }
+    });
+    $('ricerca-pulisci').addEventListener('click', () => {
+      $('ricerca-testo').value = ''; ricerca = ''; disegnaRisultati(); disegna(); $('ricerca-ore').close();
+    });
 
-    // Scorrere col dito di lato cambia giorno.
+    // Scorrere col dito di lato cambia giorno (se non si sta trascinando).
     let tocco = null;
     $('ore-slot').addEventListener('touchstart', e => {
       const t = e.touches[0];
       tocco = e.touches.length === 1 ? { x: t.clientX, y: t.clientY } : null;
     }, { passive: true });
     $('ore-slot').addEventListener('touchend', e => {
-      if (!tocco) return;
+      if (!tocco || (gesto && gesto.tipo !== 'forse')) { tocco = null; return; }
       const t = e.changedTouches[0];
       const dx = t.clientX - tocco.x, dy = t.clientY - tocco.y;
       tocco = null;
       if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) vaiA(spostaLavorativo(giorno, dx < 0 ? 1 : -1));
     });
+    // Mentre si trascina col dito la pagina non deve scorrere.
+    document.addEventListener('touchmove', e => {
+      if (gesto && gesto.tipo !== 'forse') e.preventDefault();
+    }, { passive: false });
 
+    // Il pannello del telefono
     $('ore-cerca').addEventListener('input', () => { evidenziata = 0; disegnaProposte(); });
     $('ore-cerca').addEventListener('keydown', e => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        const n = righeProposte.length;
+        const n = azioniPannello.length;
         if (n) evidenziata = (evidenziata + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
         disegnaProposte();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if ($('ore-cerca').value.trim()) scegli(evidenziata);
+        if ($('ore-cerca').value.trim()) scegliPannello(evidenziata);
       }
     });
-    $('ore-svuota').addEventListener('click', () => { imposta(null); disegna(); });
-    $('ore-dividi').addEventListener('click', () => { dividiORiunisci(); disegna(); });
-    $('ore-fine').addEventListener('click', chiudiScelta);
-    $('scheda-ore').addEventListener('click', e => { if (e.target === $('scheda-ore')) chiudiScelta(); });
-    $('scheda-ore').addEventListener('close', () => { scelta = null; disegnaSlot(); });
+    $('ore-svuota').addEventListener('click', () => { imposta(scelta, null); disegna(); });
+    $('ore-dividi').addEventListener('click', () => { dividi(scelta); disegna(); });
+    $('ore-copia').addEventListener('click', () => copia());
+    $('ore-incolla-slot').addEventListener('click', () => incolla());
+    $('ore-fine').addEventListener('click', () => $('scheda-ore').close());
+    $('scheda-ore').addEventListener('click', e => { if (e.target === $('scheda-ore')) $('scheda-ore').close(); });
+    $('scheda-ore').addEventListener('close', () => { scelta = null; disegna(); });
 
+    // Il PC
+    $('mese-prima').addEventListener('click', () => {
+      const d = daData(mese + '-01'); d.setMonth(d.getMonth() - 1);
+      mese = aData(d).slice(0, 7); scelta = null; vaiA(giorniGriglia(mese).find(x => x.startsWith(mese)));
+    });
+    $('mese-dopo').addEventListener('click', () => {
+      const d = daData(mese + '-01'); d.setMonth(d.getMonth() + 1);
+      mese = aData(d).slice(0, 7); scelta = null; vaiA(giorniGriglia(mese).find(x => x.startsWith(mese)));
+    });
+    $('mese-annulla').addEventListener('click', annulla);
+    $('mese-rifai').addEventListener('click', rifai);
+    $('mese-accorpa').addEventListener('click', () => { accorpata = !accorpata; disegna(); });
+    $('mese-riepilogo').addEventListener('click', () => { disegnaRiepilogo(); $('riepilogo-ore').showModal(); });
+    $('mese-cerca').addEventListener('input', e => cercaDopo(e.target.value));
+    $('mese-cerca').addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.target.value = ''; cercaDopo(''); e.target.blur(); }
+    });
+    $('mese-griglia').addEventListener('dblclick', e => {
+      if (!e.target.closest('.cella[data-data]') || !scelta) return;
+      const id = vociDelloSlot(scelta);
+      apriCampo(id ? etichettaDi(infoGiorno(scelta.data).info, id) : '');
+    });
+
+    // Il campo del PC
+    const testo = $('ore-campo-testo');
+    testo.addEventListener('input', () => { evidenziataCampo = 0; $('ore-campo-lista').hidden = false; disegnaCampo(); });
+    testo.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        $('ore-campo-lista').hidden = false;
+        const n = azioniCampo.length;
+        if (n) evidenziataCampo = (evidenziataCampo + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+        disegnaCampo();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        scegliCampo(null);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        // Esc chiude la tendina, poi il campo.
+        if (!$('ore-campo-lista').hidden) $('ore-campo-lista').hidden = true;
+        else chiudiCampo();
+      }
+    });
+    testo.addEventListener('blur', () => {
+      if ($('ore-campo').hidden) return;
+      // Lasciando il campo, il testo vale solo se corrisponde a una commessa.
+      const id = esatta(scelta.data, testo.value);
+      if (id && id !== vociDelloSlot(scelta)) { imposta(scelta, id); disegna(); }
+      $('ore-campo').hidden = true;
+    });
+
+    // Clic, trascinamento e tastiera, per tutte e due le viste
+    for (const box of [$('ore-slot'), $('mese-griglia')]) {
+      box.addEventListener('click', clic);
+      box.addEventListener('pointerdown', giùPuntatore);
+    }
+    document.addEventListener('pointermove', muoviPuntatore);
+    document.addEventListener('pointerup', suPuntatore);
+    document.addEventListener('pointercancel', annullaGesto);
+    document.addEventListener('keydown', e => {
+      // Ctrl+1 / Ctrl+2 (o Alt+1 / Alt+2, che il browser non si tiene) cambiano scheda.
+      if ((e.ctrlKey || e.altKey) && (e.key === '1' || e.key === '2')) {
+        e.preventDefault();
+        mostraScheda(e.key === '1' ? 'ore' : 'laser');
+        return;
+      }
+      tasto(e);
+    });
+
+    // Il riepilogo
     $('ore-riepilogo').addEventListener('click', () => { disegnaRiepilogo(); $('riepilogo-ore').showModal(); });
     $('riepilogo-ore').addEventListener('click', e => { if (e.target === $('riepilogo-ore')) $('riepilogo-ore').close(); });
     $('riep-perimetro').addEventListener('click', e => {
@@ -965,16 +1880,17 @@ const ore = (() => {
     });
     $('riep-numerate').addEventListener('change', disegnaRiepilogo);
 
-    // Sul PC, Ctrl+Z e Ctrl+Y fuori dai campi di testo; le frecce cambiano giorno.
-    document.addEventListener('keydown', e => {
-      if (!document.body.classList.contains('vista-ore') || document.querySelector('dialog[open]')) return;
-      if (e.target.closest('input, textarea')) return;
-      const ctrl = e.ctrlKey || e.metaKey;
-      if (ctrl && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); annulla(); }
-      else if (ctrl && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); rifai(); }
-      else if (!ctrl && e.key === 'ArrowLeft') vaiA(spostaLavorativo(giorno, -1));
-      else if (!ctrl && e.key === 'ArrowRight') vaiA(spostaLavorativo(giorno, 1));
+    // Gli effetti si possono spegnere dal pannello di OneDrive.
+    const interruttore = $('effetti-acceso');
+    interruttore.checked = effetti.acceso();
+    interruttore.addEventListener('change', () => effetti.imposta(interruttore.checked));
+
+    let misura = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(misura);
+      misura = setTimeout(() => { if (document.body.classList.contains('vista-ore')) disegna(); }, 120);
     });
+    pc.addEventListener('change', () => { scelta = null; chiudiCampo(); vaiA(giorno); });
 
     // A mezzanotte «oggi» cambia: la targhetta va spostata da sé.
     let ieri = oggi();
@@ -983,13 +1899,13 @@ const ore = (() => {
     // Gli anni con modifiche non ancora inviate si sincronizzano anche se non si guardano.
     try {
       for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        const m = /^rd\.ore\.v1\.(\d{4})$/.exec(k || '');
+        const m = /^rd\.ore\.v1\.(\d{4})$/.exec(localStorage.key(i) || '');
         if (m && inAttesa(statoAnno(Number(m[1])))) anniAperti.add(Number(m[1]));
       }
     } catch (_) {}
 
     onedrive.registra(sincronizza);
+    mostraScheda(leggi(CHIAVE_SCHEDA) === 'laser' ? 'laser' : 'ore');
     vaiA(giorno);
   }
 

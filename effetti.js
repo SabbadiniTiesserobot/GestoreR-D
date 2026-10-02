@@ -1,0 +1,239 @@
+'use strict';
+
+// ════════════════════════════════════════════════ gli effetti
+//
+// Le animazioni di conferma in stile retro del modulo Ore: fotogrammi discreti a
+// 30 fps (un numero intero di rinfreschi a 60 Hz), una griglia di pixel da 3, tavolozze
+// fisse che ciclano, fra 140 e 700 ms. Ogni effetto ha la sua sagoma e la sua tavolozza,
+// così si riconosce con la coda dell'occhio. Si disegnano su una tela sopra la pagina,
+// che non riceve tocchi: la griglia sotto non cambia mai opacità.
+
+const effetti = (() => {
+  const PX = 3;
+  const FOTOGRAMMA = 1000 / 30;
+  const CHIAVE = 'rd.effetti';
+
+  const DURATE = {
+    scrivi: 300, cancella: 460, giornata: 600, settimana: 700,
+    misura: 140, copia: 400, incolla: 400, annulla: 600, rifai: 600
+  };
+
+  const FUOCO = ['#ffffff', '#ffe14d', '#ff9b21', '#e8461b', '#8b1a10'];
+  const MATTONE = ['#c46a3e', '#8e4325'];
+  const VERDI = ['#e9ffe0', '#7bf06a', '#2fbf3a', '#137a2a'];
+  const TETRAMINI = ['#33d6e8', '#f2d22e', '#a64fe0', '#46d04a', '#e8423a', '#3a62e8', '#f08a2a'];
+  const CLONE = ['#ffffff', '#9fefff', '#3fc8f0', '#1a7ec4'];
+  const TELE = ['#ffffff', '#ffe9a8', '#f6b93b', '#c97a12'];
+  const CANCELLO_INDIETRO = ['#ffffff', '#b9a8ff', '#6f4bff', '#2a1a8a', '#43e0ff'];
+  const CANCELLO_AVANTI = ['#ffffff', '#ffd6a8', '#ff8a3d', '#a8340f', '#ffe14d'];
+
+  let tela = null, ctx = null;
+  let attivi = [];
+  let giro = null;
+
+  const leggi = () => { try { return localStorage.getItem(CHIAVE); } catch (_) { return null; } };
+  const riduci = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let acceso = leggi() === null ? !riduci : leggi() === '1';
+
+  function imposta(si) {
+    acceso = !!si;
+    try { localStorage.setItem(CHIAVE, acceso ? '1' : '0'); } catch (_) {}
+    if (!acceso) { attivi = []; pulisci(); }
+  }
+
+  function prepara() {
+    if (tela) return true;
+    tela = document.getElementById('effetti');
+    if (!tela) return false;
+    ctx = tela.getContext('2d');
+    const misura = () => {
+      tela.width = Math.ceil(window.innerWidth / PX);
+      tela.height = Math.ceil(window.innerHeight / PX);
+      ctx.imageSmoothingEnabled = false;
+    };
+    misura();
+    window.addEventListener('resize', misura);
+    return true;
+  }
+
+  function pulisci() { if (ctx) ctx.clearRect(0, 0, tela.width, tela.height); }
+
+  /** Un effetto sul rettangolo (coordinate dello schermo, come getBoundingClientRect). */
+  function gioca(tipo, rett, opzioni = {}) {
+    if (!acceso || !rett || !DURATE[tipo] || !prepara()) return;
+    const r = {
+      x: Math.floor(rett.left / PX), y: Math.floor(rett.top / PX),
+      w: Math.max(2, Math.round(rett.width / PX)), h: Math.max(2, Math.round(rett.height / PX))
+    };
+    attivi.push({ tipo, r, inizio: performance.now(), n: Math.round(DURATE[tipo] / FOTOGRAMMA), op: opzioni });
+    if (!giro) giro = requestAnimationFrame(passo);
+  }
+
+  let ultimo = -1;
+  function passo(adesso) {
+    giro = null;
+    // Si ridisegna solo quando cambia il fotogramma: 30 al secondo, non 60.
+    const f = Math.floor(adesso / FOTOGRAMMA);
+    if (f !== ultimo) {
+      ultimo = f;
+      pulisci();
+      attivi = attivi.filter(e => {
+        const i = Math.floor((adesso - e.inizio) / FOTOGRAMMA);
+        if (i >= e.n) return false;
+        DISEGNI[e.tipo](e.r, i, e.n, e.op);
+        return true;
+      });
+    }
+    if (attivi.length) giro = requestAnimationFrame(passo);
+    else pulisci();
+  }
+
+  // ─────────────── i mattoni del disegno, in pixel da 3
+
+  const px = (x, y, c, w = 1, h = 1) => { ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), w, h); };
+  function diamante(cx, cy, r, c) {
+    for (let dy = -r; dy <= r; dy++) {
+      const w = r - Math.abs(dy);
+      px(cx - w, cy + dy, c, w * 2 + 1, 1);
+    }
+  }
+  function anello(cx, cy, rx, ry, c, spessore = 1) {
+    const passi = Math.max(12, Math.round((rx + ry) * 3));
+    for (let k = 0; k < passi; k++) {
+      const a = (k / passi) * Math.PI * 2;
+      px(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, c, spessore, spessore);
+    }
+  }
+  const centro = r => ({ cx: r.x + r.w / 2, cy: r.y + r.h / 2 });
+
+  // ─────────────── i disegni, uno per gesto
+
+  const DISEGNI = {
+    // Scrivere: onde e puntini tondi, bianco e tinta della voce.
+    scrivi(r, i, n, op) {
+      const { cx, cy } = centro(r);
+      const tinta = op.colore || '#5bd9c0';
+      for (let k = 0; k < 3; k++) {
+        const t = i - k * 2;
+        if (t < 0) continue;
+        anello(cx, cy, Math.min(r.w / 2, t * 2.2), Math.min(r.h / 2, t * 1.1), k % 2 ? tinta : '#ffffff');
+      }
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + 0.3;
+        const d = i * 1.8;
+        px(cx + Math.cos(a) * d * 1.6, cy + Math.sin(a) * d * 0.8, (k + i) % 2 ? '#ffffff' : tinta, 2, 2);
+      }
+    },
+
+    // Cancellare: una croce di mattoni alla Bomberman, poi il fuoco e le schegge.
+    cancella(r, i, n) {
+      const { cx, cy } = centro(r);
+      const crescita = Math.min(1, (i + 1) / 5);
+      const bx = Math.floor((r.w / 2) * crescita), by = Math.floor((r.h / 2) * crescita);
+      const fuoco = i >= 5;
+      for (let x = -bx; x <= bx; x++) {
+        for (let y = -1; y <= 1; y++) {
+          const c = fuoco ? FUOCO[(Math.abs(x) + i) % FUOCO.length] : MATTONE[(x + y + 64) % 3 === 0 ? 1 : 0];
+          px(cx + x, cy + y, c);
+        }
+      }
+      for (let y = -by; y <= by; y++) {
+        for (let x = -1; x <= 1; x++) {
+          const c = fuoco ? FUOCO[(Math.abs(y) + i) % FUOCO.length] : MATTONE[(y + x + 64) % 3 === 0 ? 1 : 0];
+          px(cx + x, cy + y, c);
+        }
+      }
+      if (fuoco) {
+        const t = i - 5;
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([dx, dy], k) =>
+          diamante(cx + dx * t * 2.2, cy + dy * t * 1.4, 1, FUOCO[(k + i) % 4]));
+      }
+    },
+
+    // Giornata completata: un anello e i diamanti verdi.
+    giornata(r, i, n) {
+      const { cx, cy } = centro(r);
+      const t = (i + 1) / n;
+      const rx = (r.w / 2) * t, ry = (r.h / 2) * t;
+      anello(cx, cy, rx, ry, VERDI[i % VERDI.length], 2);
+      anello(cx, cy, rx * 0.7, ry * 0.7, VERDI[(i + 2) % VERDI.length]);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + i * 0.25;
+        diamante(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, 2, VERDI[(k + i) % VERDI.length]);
+      }
+    },
+
+    // Settimana completata: il «line clear» di Tetris, nei colori dei tetramini.
+    settimana(r, i, n) {
+      const lato = 4;
+      const colonne = Math.max(1, Math.floor(r.w / lato));
+      const y = r.y + Math.floor(r.h / 2) - lato;
+      const via = Math.max(0, i - 4) * (colonne / (2 * (n - 5)));
+      for (let k = 0; k < colonne; k++) {
+        const d = Math.abs(k - (colonne - 1) / 2);
+        if (d < via) continue;
+        const c = i < 4 && i % 2 ? '#ffffff' : TETRAMINI[(k + i) % TETRAMINI.length];
+        for (let riga = 0; riga < 2; riga++) {
+          px(r.x + k * lato, y + riga * lato, c, lato - 1, lato - 1);
+        }
+      }
+    },
+
+    // Allungare o accorciare: il misuratore, una tacca per ogni mezz'ora attraversata.
+    misura(r, i, n, op) {
+      const y = r.y + r.h - 1;
+      const c = i % 2 ? '#ffffff' : '#5bd9c0';
+      px(r.x + r.w / 2 - 8, y, c, 16, 1);
+      px(r.x + r.w / 2 - 1, y - 3, c, 2, 4);
+      for (let k = 1; k <= Math.min(op.tacche || 1, 8); k++) px(r.x + r.w / 2 + 9 + k * 3, y - 1, '#ffe14d', 2, 2);
+    },
+
+    // Copiare: la clonazione, che sale e si stringe.
+    copia(r, i, n) {
+      for (let k = 0; k < 3; k++) {
+        const t = i - k * 2;
+        if (t < 0) continue;
+        const ins = t;
+        const x = r.x + ins, w = r.w - ins * 2, h = r.h - ins, y = r.y - t * 2;
+        if (w <= 0 || h <= 0) continue;
+        const c = CLONE[(k + i) % CLONE.length];
+        px(x, y, c, w, 1); px(x, y + h - 1, c, w, 1); px(x, y, c, 1, h); px(x + w - 1, y, c, 1, h);
+      }
+    },
+
+    // Incollare: il teletrasporto, che scende e si compone.
+    incolla(r, i, n) {
+      const meta = Math.floor(n / 2);
+      if (i < meta) {
+        for (let k = 0; k < 5; k++) {
+          const x = r.x + Math.round(((k + 0.5) / 5) * r.w);
+          const fino = r.y + Math.round((i / meta) * r.h);
+          px(x, r.y - 8, TELE[(k + i) % TELE.length], 1, fino - r.y + 8);
+        }
+      } else {
+        const righe = Math.round(((i - meta + 1) / (n - meta)) * r.h);
+        for (let y = 0; y < righe; y += 2) px(r.x, r.y + y, TELE[(y + i) % TELE.length], r.w, 1);
+      }
+    },
+
+    // Annulla e rifai: il Cancello, in versi opposti. Annulla si chiude girando a
+    // sinistra, rifai si apre girando a destra.
+    annulla(r, i, n) { cancello(r, i, n, -1, CANCELLO_INDIETRO); },
+    rifai(r, i, n) { cancello(r, i, n, 1, CANCELLO_AVANTI); }
+  };
+
+  function cancello(r, i, n, verso, tavolozza) {
+    const { cx, cy } = centro(r);
+    const t = verso < 0 ? 1 - i / n : (i + 1) / n;
+    const ry = (r.h / 2) * Math.min(1, 0.3 + t), rx = Math.max(2, (r.w / 3) * t);
+    anello(cx, cy, rx, ry, tavolozza[i % 4], 2);
+    for (let k = 0; k < 14; k++) {
+      const a = (k / 14) * Math.PI * 2 + verso * i * 0.45;
+      const s = 0.35 + 0.6 * ((k * 7) % 10) / 10;
+      px(cx + Math.cos(a) * rx * s, cy + Math.sin(a) * ry * s, tavolozza[(k + i) % tavolozza.length], 2, 2);
+    }
+    px(cx - 1, cy - ry * 0.8, tavolozza[4], 2, ry * 1.6);
+  }
+
+  return { gioca, imposta, acceso: () => acceso };
+})();
