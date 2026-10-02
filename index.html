@@ -2,7 +2,9 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Niente zoom: è un'app, non una pagina da leggere. maximum-scale toglie anche lo zoom
+     automatico di iOS quando si tocca un campo con il testo sotto i 16 px. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Laser Servo-Robot</title>
 
 <!-- Prototipo temporaneo del modulo «Laser Servo-Robot» di App gestione R&D.
@@ -47,7 +49,7 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }   /* niente zoom col doppio tocco */
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.4 "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
@@ -1862,6 +1864,15 @@ window.addEventListener('storage', e => {
 disegna();
 // Dopo gli altri script (ore.js), che devono registrarsi prima della prima sincronizzazione.
 window.addEventListener('DOMContentLoaded', () => onedrive.avvia());
+
+// Su iOS Safari ignora user-scalable=no (per accessibilità): il pizzico si ferma qui,
+// con i gesti propri di Safari e con i movimenti a due dita.
+for (const tipo of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(tipo, e => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', e => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
 
 // ════════════════════════════════════════════════ offline
 //
