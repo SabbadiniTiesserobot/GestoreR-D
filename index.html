@@ -119,8 +119,85 @@ body.scollegato .cerca, body.scollegato .conti { display: none !important; }
   border: 0; background: none; padding: 5px 12px; font-size: 13.5px; border-radius: 7px; color: var(--muted);
 }
 .schede button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
-body.vista-ore #vista-laser, body.vista-ore .aggiungi, body.vista-ore #cerca,
-body.vista-ore #conti, body.vista-laser #vista-ore, body.vista-laser #targa-ore { display: none; }
+body:not(.vista-laser) #vista-laser, body:not(.vista-laser) #aggiungi, body:not(.vista-laser) #cerca,
+body:not(.vista-laser) #conti, body:not(.vista-ore) #vista-ore, body:not(.vista-ore) #targa-ore,
+body:not(.vista-pc) #vista-pc, body:not(.vista-pc) #pc-aggiungi { display: none; }
+@media (max-width: 520px) { .schede .lungo { display: none; } }
+
+/* ─────────────────────────────── gestione PC
+   Sul PC una tabella come il foglio di prima, a gruppi per mese di consegna; sotto i
+   760 px ogni PC diventa una scheda. */
+main.pc { max-width: 1400px; }
+.pc-barra { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.pc-barra .cerca { flex: 1; min-width: 220px; margin: 0; }
+.pc-filtro { margin: 0; font-size: 13.5px; }
+.pc-conti { margin: 8px 0 4px; }
+.pc-mese { margin-top: 16px; }
+.pc-mese h2 {
+  margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text2);
+}
+.pc-mese h2 span { color: var(--faint); font-weight: 400; }
+.pc-gruppo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.pc-intesta, .pc-riga {
+  display: grid; gap: 4px 12px; align-items: center;
+  grid-template-columns: 130px minmax(110px, 1fr) minmax(120px, 1.1fr) 150px minmax(160px, 1.6fr) minmax(140px, 1.4fr);
+}
+.pc-intesta {
+  margin-top: 12px; padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint);
+}
+.pc-riga { padding: 9px 12px; border-top: 1px solid var(--border); cursor: pointer; font-size: 14px; }
+.pc-riga:first-child { border-top: 0; }
+.pc-riga:hover { background: var(--bg); }
+.pc-riga:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pc-commesse { font-weight: 600; color: var(--text-strong); }
+.pc-software { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+  background: var(--bg); border: 1px solid var(--border2); color: var(--text2); white-space: nowrap;
+}
+.pc-hardware { color: var(--text2); font-size: 13px; }
+.pc-note { color: var(--muted); font-size: 13px; }
+.pc-stato {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; cursor: pointer; max-width: 100%;
+  color: var(--text); background: var(--control); border: 1px solid var(--control-border);
+}
+.pc-stato.aperto { background: rgba(232, 195, 40, .22); border-color: rgba(200, 160, 20, .55); }
+.pc-stato.pronto { background: rgba(15, 143, 125, .14); border-color: rgba(15, 143, 125, .45); }
+.pc-stato.fatto { color: var(--muted); }
+.pc-riga.stornata > :not(select) { text-decoration: line-through; color: var(--faint); }
+.pc-riga.stornata .pc-note { text-decoration: none; }
+@media (max-width: 760px) {
+  .pc-intesta { display: none; }
+  .pc-riga {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "commesse stato" "cliente stato" "software software" "hardware hardware" "note note";
+  }
+  .pc-commesse { grid-area: commesse; } .pc-cliente { grid-area: cliente; } .pc-stato { grid-area: stato; }
+  .pc-software { grid-area: software; } .pc-hardware { grid-area: hardware; } .pc-note { grid-area: note; }
+  .pc-note:empty, .pc-hardware:empty, .pc-software:empty { display: none; }
+}
+.campi-due { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.campo select {
+  width: 100%; font: inherit; font-size: 16px; color: var(--text); padding: 10px 12px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border2);
+}
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button.chip { cursor: pointer; padding: 6px 12px; font-size: 13.5px; }
+button.chip.acceso { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.altro-sw { display: flex; gap: 8px; margin-top: 8px; }
+.altro-sw input {
+  flex: 1; font: inherit; font-size: 15px; padding: 7px 10px; border-radius: 8px; outline: none;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border2);
+}
+dialog#importa-pc { width: min(760px, calc(100% - 24px)); }
+.pci-spiega { margin: 0 0 10px; font-size: 13.5px; color: var(--muted); }
+.pci-testo {
+  width: 100%; min-height: 220px; font: 12.5px/1.4 "IBM Plex Mono", ui-monospace, monospace; padding: 10px;
+  border-radius: 8px; color: var(--text); background: var(--bg); border: 1px solid var(--border2); white-space: pre; overflow: auto;
+}
+.pci-esito { font-size: 13.5px; color: var(--text2); min-height: 18px; }
 body.vista-ore { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .sopratitolo { margin-top: 2px; }
 #targa-ore b { color: var(--text2); }
@@ -566,6 +643,7 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
       <div class="schede" role="tablist" aria-label="Modulo">
         <button type="button" role="tab" id="scheda-ore-btn" data-scheda="ore">Ore</button>
         <button type="button" role="tab" id="scheda-laser-btn" data-scheda="laser">Laser</button>
+        <button type="button" role="tab" id="scheda-pc-btn" data-scheda="pc"><span class="lungo">Gestione </span>PC</button>
       </div>
     </div>
     <div class="sopratitolo">App gestione R&amp;D · prototipo</div>
@@ -624,6 +702,21 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   <div class="ore-avviso" id="mese-avviso" hidden></div>
   <div class="mese-griglia" id="mese-griglia"></div>
  </div>
+</main>
+
+<main id="vista-pc" class="pc">
+  <div class="pc-barra">
+    <input class="cerca" id="pc-cerca" type="search" placeholder="Cerca commessa, cliente, software, stato…"
+           autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Cerca fra i PC">
+    <label class="interruttore pc-filtro"><input type="checkbox" id="pc-nascondi"> Nascondi installati e stornati</label>
+    <button type="button" id="pc-importa-apri">Importa da Excel</button>
+  </div>
+  <div class="conti pc-conti" id="pc-conti"></div>
+  <div class="pc-intesta" aria-hidden="true">
+    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Hardware</span><span>Note</span>
+  </div>
+  <div id="pc-lista"></div>
+  <div class="vuoto" id="pc-vuoto" hidden></div>
 </main>
 
 <main id="vista-laser">
@@ -750,6 +843,78 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 </dialog>
 
 <button type="button" class="aggiungi" id="aggiungi" aria-label="Aggiungi un laser" title="Aggiungi un laser">+</button>
+<button type="button" class="aggiungi" id="pc-aggiungi" aria-label="Aggiungi un PC" title="Aggiungi un PC">+</button>
+
+<dialog id="scheda-pc" aria-labelledby="pcf-titolo">
+  <form id="modulo-pc" method="dialog" novalidate>
+    <h2 id="pcf-titolo">Nuovo PC</h2>
+    <div class="campi-due">
+      <label class="campo">
+        <span>Commessa</span>
+        <input id="pcf-commesse" class="mono" autocomplete="off" autocapitalize="characters" spellcheck="false"
+               placeholder="26xxx, o 26xxx + 26yyy">
+      </label>
+      <label class="campo">
+        <span>Cliente</span>
+        <input id="pcf-cliente" autocomplete="off" autocapitalize="words" list="pcf-clienti-usati">
+        <datalist id="pcf-clienti-usati"></datalist>
+      </label>
+    </div>
+    <div class="campo">
+      <span>Software</span>
+      <div class="chips" id="pcf-software"></div>
+      <div class="altro-sw">
+        <input id="pcf-altro" placeholder="Altro software…" autocomplete="off" aria-label="Altro software">
+        <button type="button" id="pcf-aggiungi-sw">Aggiungi</button>
+      </div>
+    </div>
+    <div class="campi-due">
+      <label class="campo">
+        <span>Stato</span>
+        <select id="pcf-stato"></select>
+      </label>
+      <label class="campo">
+        <span>Consegna</span>
+        <input id="pcf-consegna" type="month">
+      </label>
+    </div>
+    <label class="campo">
+      <span>Hardware</span>
+      <input id="pcf-hardware" autocomplete="off" list="pcf-hardware-usati" placeholder="PC, licenze, schede, switch…">
+      <datalist id="pcf-hardware-usati"></datalist>
+    </label>
+    <label class="campo">
+      <span>Note</span>
+      <textarea id="pcf-note" autocapitalize="sentences"></textarea>
+    </label>
+    <label class="campo-foto">
+      <input type="checkbox" id="pcf-stornata">
+      <span>Commessa stornata</span>
+    </label>
+    <p class="errore" id="pcf-errore" role="alert"></p>
+    <div class="azioni">
+      <button type="button" class="pericolo" id="pcf-elimina">Elimina</button>
+      <span class="spazio"></span>
+      <button type="button" id="pcf-annulla">Annulla</button>
+      <button type="submit" class="primario">Salva</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="importa-pc" aria-labelledby="pci-titolo">
+  <form method="dialog" onsubmit="return false">
+    <h2 id="pci-titolo">Importa da Excel</h2>
+    <p class="pci-spiega">Nel foglio seleziona le righe dei PC (dalla colonna della commessa a quella della
+      consegna), copiale e incollale qui. Le righe vuote fra un mese e l'altro si possono lasciare.</p>
+    <textarea id="pci-testo" class="pci-testo" spellcheck="false" aria-label="Righe copiate da Excel"></textarea>
+    <p class="pci-esito" id="pci-esito"></p>
+    <div class="azioni">
+      <span class="spazio"></span>
+      <button type="button" id="pci-annulla">Annulla</button>
+      <button type="button" class="primario" id="pci-importa">Importa</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="scheda" aria-labelledby="titolo-scheda">
   <form id="modulo" method="dialog" novalidate>
@@ -1668,6 +1833,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 </script>
 <script src="effetti.js"></script>
+<script src="pc.js"></script>
 <script src="ore.js"></script>
 </body>
 </html>

@@ -1722,16 +1722,19 @@ const ore = (() => {
     $('riep-piede').textContent = `Slot vuoti fino a oggi: ${fmt(vuote)} h · voci senza numero di commessa: ${fmt(senzaNumero)} h`;
   }
 
-  // ─────────────── le schede Ore e Laser
+  // ─────────────── le schede Ore, Laser e Gestione PC
+
+  const SCHEDE = { ore: 'Ore', laser: 'Laser Servo-Robot', pc: 'Gestione PC' };
 
   function mostraScheda(nome) {
-    document.body.classList.toggle('vista-ore', nome === 'ore');
-    document.body.classList.toggle('vista-laser', nome === 'laser');
-    $('titolo').textContent = nome === 'ore' ? 'Ore' : 'Laser Servo-Robot';
+    if (!SCHEDE[nome]) nome = 'ore';
+    for (const n of Object.keys(SCHEDE)) document.body.classList.toggle('vista-' + n, nome === n);
+    $('titolo').textContent = SCHEDE[nome];
     document.querySelectorAll('.schede button').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.scheda === nome)));
     scriviLocale(CHIAVE_SCHEDA, nome);
     if (nome === 'ore') disegna();
+    if (nome === 'pc') pcCommesse.disegna();
   }
 
   // ─────────────── avvio
@@ -1860,10 +1863,10 @@ const ore = (() => {
     document.addEventListener('pointerup', suPuntatore);
     document.addEventListener('pointercancel', annullaGesto);
     document.addEventListener('keydown', e => {
-      // Ctrl+1 / Ctrl+2 (o Alt+1 / Alt+2, che il browser non si tiene) cambiano scheda.
-      if ((e.ctrlKey || e.altKey) && (e.key === '1' || e.key === '2')) {
+      // Ctrl+1/2/3 (o Alt+1/2/3, che il browser non si tiene) cambiano scheda.
+      if ((e.ctrlKey || e.altKey) && ['1', '2', '3'].includes(e.key)) {
         e.preventDefault();
-        mostraScheda(e.key === '1' ? 'ore' : 'laser');
+        mostraScheda({ 1: 'ore', 2: 'laser', 3: 'pc' }[e.key]);
         return;
       }
       tasto(e);
@@ -1905,7 +1908,7 @@ const ore = (() => {
     } catch (_) {}
 
     onedrive.registra(sincronizza);
-    mostraScheda(leggi(CHIAVE_SCHEDA) === 'laser' ? 'laser' : 'ore');
+    mostraScheda(leggi(CHIAVE_SCHEDA) || 'ore');
     vaiA(giorno);
   }
 
