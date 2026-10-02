@@ -402,18 +402,9 @@ const pcCommesse = (() => {
 
   function rigaModificabile(p) {
     const r = el('div', 'pc-riga sul-posto' + (p.stornata ? ' stornata' : ''));
-    const consegna = el('input', 'pc-consegna');
-    consegna.type = 'month';
-    consegna.value = p.consegna;
-    consegna.setAttribute('aria-label', 'Mese di consegna');
-    consegna.addEventListener('change', () => {
-      const v = /^\d{4}-\d{2}$/.test(consegna.value) ? consegna.value : '';
-      // Cambiando mese il PC passa a un altro gruppo: qui sì che si ridisegna.
-      if (v !== p.consegna) { cambia(p, { consegna: v }); consegna.blur(); disegna(); }
-    });
     const altro = el('button', 'pc-altro', '⋯');
     altro.type = 'button';
-    altro.title = 'Tutti i campi, stornata, elimina';
+    altro.title = 'Tutti i campi: consegna, stornata, elimina';
     altro.setAttribute('aria-label', `Apri la scheda del PC ${p.commesse}`);
     altro.addEventListener('click', () => apri(p.id));
 
@@ -423,7 +414,6 @@ const pcCommesse = (() => {
       cellaElenco(p, 'software', { lista: 'pc-sw-usati', nome: 'software', classe: 'pc-software' }),
       selettoreStato(p),
       cellaElenco(p, 'lingue', { lista: 'pc-lingue-usate', nome: 'lingua', vuoto: 'Italiano', classe: 'pc-lingue' }),
-      consegna,
       cella(p, 'hardware', 'pc-hardware', 'hardware'),
       cella(p, 'note', 'pc-note', 'note'),
       altro);
