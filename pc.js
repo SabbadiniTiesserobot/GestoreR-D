@@ -246,10 +246,12 @@ const pcCommesse = (() => {
     for (const p of visibili) {
       if (p.consegna !== mese || !gruppo) {
         mese = p.consegna;
-        const sezione = el('section', 'pc-mese');
+        const sezione = el('section', 'pc-mese' + (mese === meseAttuale() ? ' corrente' : ''));
+        sezione.dataset.mese = mese;
         const quanti = visibili.filter(x => x.consegna === mese).length;
         const h = el('h2');
         h.append(nomeMese(mese), el('span', null, ` · ${quanti} PC`));
+        if (mese === meseAttuale()) h.append(el('span', 'questo-mese', 'questo mese'));
         sezione.append(h);
         gruppo = el('div', 'pc-gruppo');
         sezione.append(gruppo);
@@ -257,6 +259,9 @@ const pcCommesse = (() => {
       }
       gruppo.append(riga(p));
     }
+    // Si centra una volta sola, appena c'è qualcosa da centrare (i dati possono
+    // arrivare da OneDrive dopo l'apertura).
+    if (daCentrare && $('vista-pc').offsetParent && centraMeseAttuale()) daCentrare = false;
   }
 
   /** I conti in alto: quanti, e quanti ancora da fare per stato. */
@@ -680,7 +685,33 @@ const pcCommesse = (() => {
     disegna();
   }
 
-  return { avvia, disegna, leggiIncollato, leggiMese };
+  // ─────────────── all'apertura, il mese attuale al centro
+
+  const meseAttuale = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+  let daCentrare = false;
+
+  /** Il gruppo del mese attuale, o se non c'è il più vicino (l'elenco va all'indietro). */
+  function centraMeseAttuale() {
+    const sezioni = [...document.querySelectorAll('#pc-lista .pc-mese')];
+    if (!sezioni.length) return false;
+    const m = meseAttuale();
+    const datate = sezioni.filter(x => x.dataset.mese);
+    const bersaglio = datate.find(x => x.dataset.mese === m) ||
+      datate.find(x => x.dataset.mese < m) || datate[datate.length - 1] || sezioni[0];
+    bersaglio.scrollIntoView({ block: 'center' });
+    return true;
+  }
+
+  /** Aprendo la scheda: si disegna e si porta il mese attuale al centro. */
+  function mostra() {
+    daCentrare = true;
+    disegna();
+  }
+
+  return { avvia, disegna, mostra, leggiIncollato, leggiMese };
 })();
 
 pcCommesse.avvia();
