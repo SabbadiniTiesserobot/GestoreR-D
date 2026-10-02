@@ -107,8 +107,25 @@ html.standalone header { padding-top: calc(40px + env(safe-area-inset-top)); }
 @media (prefers-reduced-motion: reduce) { .s-sync { animation: none; } }
 
 /* Senza OneDrive c'è solo la schermata per collegarlo. */
-body.scollegato main, body.scollegato .aggiungi,
-body.scollegato .cerca, body.scollegato .conti { display: none; }
+body.scollegato main, body.scollegato .aggiungi, body.scollegato .schede,
+body.scollegato .cerca, body.scollegato .conti { display: none !important; }
+
+/* ─────────────────────────────── le schede Ore e Laser */
+.schede {
+  margin-left: auto; display: flex; padding: 2px; gap: 2px; border-radius: 9px;
+  background: var(--panel); border: 1px solid var(--border2);
+}
+.schede button {
+  border: 0; background: none; padding: 5px 12px; font-size: 13.5px; border-radius: 7px; color: var(--muted);
+}
+.schede button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+body.vista-ore #vista-laser, body.vista-ore .aggiungi, body.vista-ore #cerca,
+body.vista-ore #conti, body.vista-laser #vista-ore, body.vista-laser #targa-ore { display: none; }
+body.vista-ore { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.sopratitolo { margin-top: 2px; }
+#targa-ore b { color: var(--text2); }
+#targa-ore .da-fare { color: var(--warn); }
+#targa-ore .fatto { color: var(--ok); }
 .accesso { max-width: 420px; margin: 12vh auto 0; padding: 0 16px; text-align: center; color: var(--muted); }
 .accesso .od-icona { width: 88px; height: 88px; margin: 0 auto 12px; pointer-events: none; }
 .accesso .od-icona svg { width: 80px; height: 80px; }
@@ -206,6 +223,115 @@ th.c-foto { text-align: center; }
 }
 .dati .avviso { color: var(--warn); }
 .dati .pulsanti { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+/* ─────────────────────────────── le ore
+   Una giornata per schermata: otto ore, la pausa in mezzo, le ore uguali di fila
+   unite in un blocco. Le tinte delle voci vengono da --h (tonalità) e --l
+   (luminosità), che il codice sceglie dalla tavolozza a dieci tinte. */
+.ore { max-width: 620px; }
+.ore-giorno { display: flex; align-items: center; gap: 8px; }
+.ore-freccia { width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 1; flex: none; }
+.ore-data { flex: 1; text-align: center; }
+.ore-data b { display: block; font-size: 17px; color: var(--text-strong); }
+.ore-data span { font-size: 13px; }
+.meno { color: var(--warn); }
+.pieno { color: var(--ok); }
+.ore-settimana { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 10px 0 8px; }
+.ore-settimana button {
+  padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 11px; letter-spacing: .04em; color: var(--muted); text-transform: uppercase;
+}
+.ore-settimana button .num { font-size: 15px; color: var(--text-strong); letter-spacing: 0; min-width: 26px; border-radius: 6px; }
+.ore-settimana button.oggi .num { background: var(--accent); color: var(--on-accent); }
+.ore-settimana button .tot { font-size: 12px; letter-spacing: 0; text-transform: none; }
+.ore-settimana button[aria-current="date"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ore-avviso {
+  padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 13.5px;
+  background: var(--bar); border: 1px solid var(--border); color: var(--text2);
+}
+.ore-avviso.errore-ore { color: var(--danger); }
+.ore-avviso button { margin-top: 8px; display: block; }
+.ore-nota { font-size: 13.5px; color: var(--text2); margin-bottom: 8px; padding-left: 10px; border-left: 2px solid var(--border2); white-space: pre-wrap; }
+.ore-slot { touch-action: pan-y; }
+.sessione { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.pausa {
+  position: relative; height: 18px; margin: 6px 0; text-align: center;
+  font-size: 11px; line-height: 18px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
+}
+.pausa::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed var(--border2); }
+.pausa span { position: relative; background: var(--bg); padding: 0 8px; }
+.ora { display: flex; height: 52px; border-top: 1px solid var(--border); }
+.ora:first-child { border-top: 0; }
+.ora.dentro { border-top-color: transparent; }
+.ora .quando {
+  width: 54px; flex: none; padding: 8px 0 0 10px; font-size: 12px; color: var(--faint);
+  font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+.ora .metà { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cella {
+  flex: 1; min-height: 0; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  border: 0; border-radius: 0; background: none; text-align: left; width: 100%;
+  font-size: 15px; color: var(--text);
+}
+.cella + .cella { border-top: 1px dotted var(--border2); }
+.cella:hover { border-color: inherit; }
+.cella.scelta { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.cella .nome { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cella .intervallo { font-size: 12px; color: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.cella .tot { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cella.vuota .nome { color: var(--faint); }
+.tinta { --h: 0; --l: 45%; }
+.tinta.alt { --l: 33%; }
+@media (prefers-color-scheme: dark) { .tinta { --l: 66%; } .tinta.alt { --l: 54%; } }
+.voce { background: hsl(var(--h) 55% 50% / .13); box-shadow: inset 3px 0 0 hsl(var(--h) 55% var(--l)); }
+.voce.assenza { font-weight: 600; box-shadow: inset 3px 0 0 var(--c), inset 6px 0 0 var(--bg), inset 8px 0 0 var(--c), inset 0 0 0 1px var(--c); }
+.voce.ferie { --c: #7b5cc4; background: rgba(123, 92, 196, .7); color: #fff; }
+.voce.permesso { --c: #d4802a; background: rgba(212, 128, 42, .7); color: #fff; }
+.voce.assenza .tot, .voce.assenza .intervallo { color: rgba(255, 255, 255, .85); }
+.sola-lettura .cella { cursor: default; }
+.ore-comandi { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+.ore-comandi .spazio { flex: 1; }
+.ore-comandi #ore-annulla, .ore-comandi #ore-rifai { width: 44px; padding: 8px 0; font-size: 18px; }
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--control-border); }
+
+/* Il pannello per scegliere la voce. Sul telefono sta in alto e non in basso: in
+   basso la tastiera lo coprirebbe. */
+dialog.scheda-ore .dentro { padding: 16px; }
+dialog.scheda-ore h2 { margin-bottom: 10px; }
+dialog.scheda-ore .cerca { margin-top: 0; }
+@media (max-width: 640px) {
+  dialog.scheda-ore {
+    margin: calc(8px + env(safe-area-inset-top)) auto auto; width: calc(100% - 16px);
+    border-radius: 14px; border-bottom: 1px solid var(--control-border); padding-bottom: 0;
+  }
+}
+.proposte { list-style: none; margin: 8px 0 0; padding: 0; max-height: min(46vh, 380px); overflow-y: auto; }
+.proposte button {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left;
+  border: 0; border-radius: 8px; background: none; padding: 9px 10px; font-size: 15px; color: var(--text);
+}
+.proposte button:hover, .proposte button.attiva { background: var(--bg); }
+.proposte .pallino { width: 12px; height: 12px; border-radius: 3px; flex: none; background: hsl(var(--h) 55% var(--l)); }
+.proposte .testi { flex: 1; min-width: 0; }
+.proposte .testi small { display: block; font-size: 12px; color: var(--muted); }
+.proposte .h { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.proposte .nuova { color: var(--accent); font-weight: 600; }
+
+/* Il riepilogo */
+.riep-scelte { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.segmenti { display: inline-flex; padding: 2px; gap: 2px; border-radius: 9px; border: 1px solid var(--border2); background: var(--bg); }
+.segmenti button { border: 0; background: none; padding: 5px 10px; font-size: 13px; border-radius: 7px; }
+.segmenti button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.riep-numerate { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.riep-sotto { font-size: 13px; color: var(--muted); margin: 10px 0 6px; }
+.riep-righe { max-height: 52vh; overflow-y: auto; }
+.riep-riga { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.riep-riga .barra { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--bg); overflow: hidden; }
+.riep-riga .barra i { display: block; height: 100%; background: hsl(var(--h) 55% var(--l)); }
+.riep-riga .n { font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.riep-riga .p { font-variant-numeric: tabular-nums; color: var(--muted); width: 3.2em; text-align: right; }
+.riep-piede { font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
 
 /* ─────────────────────────────── pulsanti */
 button, .pulsante {
@@ -307,16 +433,43 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
         </g>
       </svg>
       </button>
-      <h1>Laser Servo-Robot</h1>
-      <span class="sopratitolo">App gestione R&amp;D · prototipo</span>
+      <h1 id="titolo">Ore</h1>
+      <div class="schede" role="tablist" aria-label="Modulo">
+        <button type="button" role="tab" id="scheda-ore-btn" data-scheda="ore">Ore</button>
+        <button type="button" role="tab" id="scheda-laser-btn" data-scheda="laser">Laser</button>
+      </div>
     </div>
+    <div class="sopratitolo">App gestione R&amp;D · prototipo</div>
     <div class="conti" id="conti">—</div>
+    <div class="conti" id="targa-ore">—</div>
     <input class="cerca" id="cerca" type="search" placeholder="Cerca commessa, cliente o note"
            autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Cerca">
   </div>
 </header>
 
-<main>
+<main id="vista-ore" class="ore">
+  <div class="ore-giorno">
+    <button type="button" class="ore-freccia" id="ore-prima" aria-label="Giorno lavorativo prima">‹</button>
+    <div class="ore-data">
+      <b id="ore-data-testo">—</b>
+      <span id="ore-totale"></span>
+    </div>
+    <button type="button" class="ore-freccia" id="ore-dopo" aria-label="Giorno lavorativo dopo">›</button>
+  </div>
+  <div class="ore-settimana" id="ore-settimana"></div>
+  <div class="ore-avviso" id="ore-avviso" hidden></div>
+  <div class="ore-nota" id="ore-nota" hidden></div>
+  <div class="ore-slot" id="ore-slot"></div>
+  <div class="ore-comandi">
+    <button type="button" id="ore-annulla" aria-label="Annulla" title="Annulla">↶</button>
+    <button type="button" id="ore-rifai" aria-label="Rifai" title="Rifai">↷</button>
+    <span class="spazio"></span>
+    <button type="button" id="ore-oggi">Oggi</button>
+    <button type="button" id="ore-riepilogo">Riepilogo</button>
+  </div>
+</main>
+
+<main id="vista-laser">
   <table id="tabella">
     <thead>
       <tr>
@@ -359,10 +512,47 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
       </svg>
   </div>
   <h2>Collega OneDrive</h2>
-  <p id="accesso-testo">I laser si salvano su OneDrive, così li ritrovi su telefono e PC.
+  <p id="accesso-testo">Ore e laser si salvano su OneDrive, così li ritrovi su telefono e PC.
      Collegalo per usare l'app.</p>
   <button type="button" class="primario" id="od-collega">Collega OneDrive</button>
 </section>
+
+<dialog id="scheda-ore" class="scheda-ore" aria-labelledby="ore-sel">
+  <div class="dentro">
+    <h2 id="ore-sel">—</h2>
+    <input id="ore-cerca" class="cerca" type="search" placeholder="Cerca commessa o attività"
+           autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"
+           aria-label="Cerca commessa o attività">
+    <ul class="proposte" id="ore-proposte"></ul>
+    <div class="azioni">
+      <button type="button" class="pericolo" id="ore-svuota">Svuota</button>
+      <button type="button" id="ore-dividi">½ ora</button>
+      <span class="spazio"></span>
+      <button type="button" class="primario" id="ore-fine">Fine</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="riepilogo-ore" class="riepilogo-ore" aria-labelledby="riep-titolo">
+  <form method="dialog">
+    <h2 id="riep-titolo">Riepilogo</h2>
+    <div class="riep-scelte">
+      <div class="segmenti" id="riep-perimetro">
+        <button type="button" data-v="mese">Mese</button>
+        <button type="button" data-v="anno">Anno</button>
+      </div>
+      <div class="segmenti" id="riep-vista">
+        <button type="button" data-v="commessa">Commessa</button>
+        <button type="button" data-v="cliente">Cliente</button>
+      </div>
+      <label class="riep-numerate"><input type="checkbox" id="riep-numerate"> solo numerate</label>
+    </div>
+    <div class="riep-sotto" id="riep-sotto"></div>
+    <div class="riep-righe" id="riep-righe"></div>
+    <p class="riep-piede" id="riep-piede"></p>
+    <div class="azioni"><span class="spazio"></span><button type="submit">Chiudi</button></div>
+  </form>
+</dialog>
 
 <dialog id="pannello-od" class="pannello-od" aria-labelledby="titolo-od">
   <form method="dialog">
@@ -1020,8 +1210,8 @@ const onedrive = (() => {
 
   // ─────────────── i file
 
-  const percorsoUrl = () =>
-    ONEDRIVE_CONFIG.percorso.split('/').map(encodeURIComponent).join('/');
+  const percorsoUrl = (percorso = ONEDRIVE_CONFIG.percorso) =>
+    percorso.split('/').map(encodeURIComponent).join('/');
 
   async function graph(metodo, url, opzioni = {}) {
     const risposta = await fetch(GRAPH + url, {
@@ -1036,31 +1226,42 @@ const onedrive = (() => {
     return risposta;
   }
 
-  /** Il file su OneDrive: { contenuto, eTag }, o null se non c'è ancora. */
-  async function scarica() {
-    const r = await graph('GET', `/me/drive/root:/${percorsoUrl()}`);
+  /** Un file su OneDrive: { testo, eTag }, o null se non c'è. */
+  async function leggiFile(percorso) {
+    const r = await graph('GET', `/me/drive/root:/${percorsoUrl(percorso)}`);
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`lettura da OneDrive: HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`lettura di ${percorso}: HTTP ${r.status}`);
     const elemento = await r.json();
 
     // Il link di scaricamento è già autorizzato e non vuole l'intestazione del token.
     const f = await fetch(elemento['@microsoft.graph.downloadUrl'], { cache: 'no-store' });
-    if (!f.ok) throw new Error(`lettura da OneDrive: HTTP ${f.status}`);
-    return { contenuto: leggiContenuto(JSON.parse(await f.text())), eTag: elemento.eTag };
+    if (!f.ok) throw new Error(`lettura di ${percorso}: HTTP ${f.status}`);
+    return { testo: (await f.text()).replace(/^\uFEFF/, ''), eTag: elemento.eTag };
   }
 
-  /** Scrive il file; false se nel frattempo qualcun altro l'ha cambiato. */
-  async function invia(contenuto, eTag) {
-    const url = `/me/drive/root:/${percorsoUrl()}:/content` +
+  /**
+   * Scrive un file e ne restituisce il nuovo eTag; false se nel frattempo qualcun
+   * altro l'ha cambiato (o, senza eTag, se qualcuno l'ha appena creato).
+   */
+  async function scriviFile(percorso, testo, eTag) {
+    const url = `/me/drive/root:/${percorsoUrl(percorso)}:/content` +
       (eTag ? '' : '?@microsoft.graph.conflictBehavior=fail');
     const r = await graph('PUT', url, {
-      corpo: JSON.stringify(contenuto, null, 2),
+      corpo: testo,
       intestazioni: { 'Content-Type': 'application/json', ...(eTag ? { 'If-Match': eTag } : {}) }
     });
     if (r.status === 412 || r.status === 409) return false;
-    if (!r.ok) throw new Error(`scrittura su OneDrive: HTTP ${r.status}`);
-    return true;
+    if (!r.ok) throw new Error(`scrittura di ${percorso}: HTTP ${r.status}`);
+    return (await r.json().catch(() => ({}))).eTag || true;
   }
+
+  async function scarica() {
+    const f = await leggiFile(ONEDRIVE_CONFIG.percorso);
+    return f && { contenuto: leggiContenuto(JSON.parse(f.testo)), eTag: f.eTag };
+  }
+
+  const invia = async (contenuto, eTag) =>
+    !!await scriviFile(ONEDRIVE_CONFIG.percorso, JSON.stringify(contenuto, null, 2), eTag);
 
   // ─────────────── l'unione
 
@@ -1109,14 +1310,35 @@ const onedrive = (() => {
     return inCorso;
   }
 
+  // Gli altri file che si sincronizzano nello stesso giro (le ore): ognuno è una
+  // funzione che riceve leggiFile e scriviFile e lancia un errore se non riesce.
+  const sorgenti = [];
+  const registra = f => sorgenti.push(f);
+
   async function giro() {
     if (!navigator.onLine) { stato = 'offline'; disegnaStatoDati(); return; }
     stato = 'in-corso';
     disegnaStatoDati();
 
+    const inizio = modifiche;
     try {
+      await giroLaser();
+      for (const f of sorgenti) await f({ leggiFile, scriviFile });
+
+      if (modifiche === inizio) scrivi(CHIAVE_ATTESA, null);
+      scrivi(CHIAVE_ULTIMA, new Date().toISOString());
+      stato = 'fermo';
+      erroreTesto = '';
+      disegnaStatoDati();
+    } catch (e) {
+      stato = navigator.onLine ? 'errore' : 'offline';
+      erroreTesto = e.daRicollegare ? 'Accesso scaduto: ricollega OneDrive.' : e.message;
+      disegnaStatoDati();
+    }
+  }
+
+  async function giroLaser() {
       for (let tentativo = 0; tentativo < 4; tentativo++) {
-        const inizio = modifiche;
         const remoto = await scarica();
         const unito = unisci(dati, remoto ? remoto.contenuto : vuoti());
 
@@ -1129,20 +1351,9 @@ const onedrive = (() => {
         if (!remoto || !uguali(unito, remoto.contenuto)) {
           if (!await invia(unito, remoto && remoto.eTag)) continue;   // cambiato là: rileggi
         }
-
-        if (modifiche === inizio) scrivi(CHIAVE_ATTESA, null);
-        scrivi(CHIAVE_ULTIMA, new Date().toISOString());
-        stato = 'fermo';
-        erroreTesto = '';
-        disegnaStatoDati();
         return;
       }
-      throw new Error('il file su OneDrive continua a cambiare, riprova tra poco');
-    } catch (e) {
-      stato = navigator.onLine ? 'errore' : 'offline';
-      erroreTesto = e.daRicollegare ? 'Accesso scaduto: ricollega OneDrive.' : e.message;
-      disegnaStatoDati();
-    }
+      throw new Error('il file dei laser su OneDrive continua a cambiare, riprova tra poco');
   }
 
   /** Chiamata a ogni modifica fatta qui: si invia poco dopo, raccogliendo le raffiche. */
@@ -1175,7 +1386,7 @@ const onedrive = (() => {
       $('od-collega').hidden = true;
     } else {
       accesso.textContent = erroreTesto ||
-        'I laser si salvano su OneDrive, così li ritrovi su telefono e PC. Collegalo per usare l\'app.';
+        'Ore e laser si salvano su OneDrive, così li ritrovi su telefono e PC. Collegalo per usare l\'app.';
       accesso.className = erroreTesto ? 'errore-sinc' : '';
       $('od-collega').hidden = false;
     }
@@ -1253,7 +1464,7 @@ const onedrive = (() => {
     await sincronizza();
   }
 
-  return { avvia, collegato, modificato, disegna: disegna_, sincronizza };
+  return { avvia, collegato, modificato, disegna: disegna_, sincronizza, registra };
 })();
 
 // Se il dato cambia in un'altra scheda dello stesso browser, questa si aggiorna.
@@ -1262,7 +1473,8 @@ window.addEventListener('storage', e => {
 });
 
 disegna();
-onedrive.avvia();
+// Dopo gli altri script (ore.js), che devono registrarsi prima della prima sincronizzazione.
+window.addEventListener('DOMContentLoaded', () => onedrive.avvia());
 
 // ════════════════════════════════════════════════ offline
 //
@@ -1273,5 +1485,6 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 </script>
+<script src="ore.js"></script>
 </body>
 </html>
