@@ -4,7 +4,8 @@
 //
 // I PC delle commesse da far preparare internamente: per ognuno le commesse (anche
 // più di una, «26xxx + 26yyy»: un PC per due commesse), il cliente, il software da
-// installare, lo stato della preparazione, l'hardware, le note e il mese di consegna.
+// installare, lo stato della preparazione, la lingua del PC se non è l'italiano,
+// l'hardware, le note e il mese di consegna.
 //
 // Il codice è pubblico: qui non c'è nessun dato. L'elenco sta solo nel file
 // «App gestione R&D/pc_commesse.json» sul OneDrive di chi si collega, e i PC che
@@ -13,7 +14,7 @@
 // «modificato» più recente, e un'eliminazione vince sulle versioni più vecchie.
 //
 // { versione: 1,
-//   pc: [ { id, commesse, cliente, software: [..], stato, hardware, note,
+//   pc: [ { id, commesse, cliente, software: [..], stato, lingua, hardware, note,
 //           consegna: "AAAA-MM", stornata, creato, modificato } ],
 //   eliminati: [ { id, quando } ] }
 
@@ -30,6 +31,9 @@ const pcCommesse = (() => {
   // può avere altri: si mostrano e si possono scegliere lo stesso.
   const STATI = ['Da ordinare', 'Attesa materiale', 'Pronto Tiesse', 'Pronto OS', 'Installato'];
   const SOFTWARE = ['TS-Vision', 'Supervisore', 'SW 4.0', 'Laser', 'TS-Simulator'];
+  // Le lingue più frequenti; vuota vuol dire italiano. Se ne può scrivere un'altra.
+  const LINGUE = ['Inglese', 'Spagnolo', 'Portoghese (Brasile)'];
+  const ALTRA = '\u0000altra';
   const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio',
     'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 
@@ -59,6 +63,7 @@ const pcCommesse = (() => {
       cliente: testo(r.cliente),
       software: [...new Set(software)],
       stato: testo(r.stato),
+      lingua: testo(r.lingua),   // vuota = italiano
       hardware: testo(r.hardware),
       note: testo(r.note),
       consegna: /^\d{4}-\d{2}$/.test(testo(r.consegna)) ? testo(r.consegna) : '',
@@ -193,7 +198,7 @@ const pcCommesse = (() => {
 
   function corrisponde(p, q) {
     if (!q) return true;
-    return [p.commesse, p.cliente, p.stato, p.hardware, p.note, ...p.software]
+    return [p.commesse, p.cliente, p.stato, p.lingua, p.hardware, p.note, ...p.software]
       .some(v => chiaro(v).includes(q));
   }
 
@@ -217,8 +222,9 @@ const pcCommesse = (() => {
     const q = chiaro($('pc-cerca').value);
     const tutti = dati.pc;
     const visibili = tutti.filter(p => corrisponde(p, q) && !(nascondiFatti && fatto(p)))
-      .sort((a, b) => (a.consegna || '9999') .localeCompare(b.consegna || '9999') ||
-        confronto.compare(a.commesse, b.commesse));
+      // Dai più recenti ai meno recenti; in cima quelli ancora senza data.
+      .sort((a, b) => (b.consegna || '9999').localeCompare(a.consegna || '9999') ||
+        confronto.compare(b.commesse, a.commesse));
 
     $('pc-nascondi').checked = nascondiFatti;
     const lista = $('pc-lista');
@@ -276,6 +282,8 @@ const pcCommesse = (() => {
     const software = el('div', 'pc-software');
     for (const s of p.software) software.append(el('span', 'chip', s));
 
+    if (p.lingua) software.append(el('span', 'chip lingua', p.lingua));
+
     const stato = selettoreStato(p);
     const hardware = el('div', 'pc-hardware', p.hardware);
     const note = el('div', 'pc-note', testoNote(p));
@@ -306,6 +314,36 @@ const pcCommesse = (() => {
       disegna();
     });
     return stato;
+  }
+
+  /** La lingua: italiano (vuota), le più frequenti, quelle già usate, o un'altra. */
+  function selettoreLingua(p, cambiaFn, classe) {
+    const s = el('select', classe + (p && p.lingua ? ' estera' : ''));
+    s.setAttribute('aria-label', 'Lingua del PC');
+    const opzioni = [['', 'Italiano'], ...[...new Set([...LINGUE, ...usati('lingua'), p && p.lingua].filter(Boolean))].map(l => [l, l]), [ALTRA, 'Altra…']];
+    for (const [v, t] of opzioni) {
+      const o = el('option', null, t);
+      o.value = v;
+      s.append(o);
+    }
+    s.value = (p && p.lingua) || '';
+    s.dataset.prima = s.value;
+    s.addEventListener('change', () => {
+      let v = s.value;
+      if (v === ALTRA) {
+        v = testo(window.prompt('Quale lingua?') || '');
+        if (!v) { s.value = s.dataset.prima; return; }
+        if (!opzioni.some(([x]) => x === v)) {
+          const o = el('option', null, v);
+          o.value = v;
+          s.insertBefore(o, s.lastChild);
+        }
+        s.value = v;
+      }
+      s.dataset.prima = v;
+      if (cambiaFn) cambiaFn(v);
+    });
+    return s;
   }
 
   // ─────────────── la riga che si modifica sul posto (PC)
@@ -403,6 +441,7 @@ const pcCommesse = (() => {
       cella(p, 'cliente', 'pc-cliente', 'cliente'),
       cellaSoftware(p),
       selettoreStato(p),
+      selettoreLingua(p, v => cambia(p, { lingua: v }, { ridisegna: true }), 'pc-lingua'),
       consegna,
       cella(p, 'hardware', 'pc-hardware', 'hardware'),
       cella(p, 'note', 'pc-note', 'note'),
@@ -437,6 +476,7 @@ const pcCommesse = (() => {
     $('pcf-commesse').value = p ? p.commesse : '';
     $('pcf-cliente').value = p ? p.cliente : '';
     $('pcf-hardware').value = p ? p.hardware : '';
+    $('pcf-lingua-posto').replaceChildren(selettoreLingua(p, null, 'pcf-lingua'));
     $('pcf-consegna').value = p ? p.consegna : '';
     $('pcf-note').value = p ? p.note : '';
     $('pcf-stornata').checked = p ? p.stornata : false;
@@ -482,6 +522,7 @@ const pcCommesse = (() => {
       software: [...softwareScelto],
       stato: $('pcf-stato').value,
       hardware: testo($('pcf-hardware').value),
+      lingua: $('pcf-lingua-posto').querySelector('select').value.replace(ALTRA, ''),
       consegna: $('pcf-consegna').value,
       note: testo($('pcf-note').value),
       stornata: $('pcf-stornata').checked

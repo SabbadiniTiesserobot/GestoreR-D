@@ -141,7 +141,7 @@ main.pc { max-width: 1400px; }
 .pc-gruppo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .pc-intesta, .pc-riga {
   display: grid; gap: 4px 10px; align-items: center;
-  grid-template-columns: 120px minmax(100px, 1fr) minmax(130px, 1.2fr) 150px 140px minmax(150px, 1.6fr) minmax(130px, 1.4fr) 32px;
+  grid-template-columns: 120px minmax(100px, 1fr) minmax(130px, 1.2fr) 150px 165px 140px minmax(150px, 1.6fr) minmax(130px, 1.4fr) 32px;
 }
 /* Le celle che si scrivono sul posto: sembrano testo finché non ci si passa sopra. */
 .pc-riga.sul-posto { cursor: default; padding-top: 6px; padding-bottom: 6px; }
@@ -166,6 +166,18 @@ main.pc { max-width: 1400px; }
   color: var(--text); background: transparent; border: 1px solid transparent;
 }
 .pc-consegna:hover, .pc-consegna:focus { border-color: var(--border2); background: var(--control); outline: none; }
+.pc-lingua {
+  width: 100%; font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 8px; cursor: pointer;
+  color: var(--faint); background: transparent; border: 1px solid transparent;
+}
+.pc-lingua:hover, .pc-lingua:focus { border-color: var(--border2); background: var(--control); outline: none; }
+.pc-lingua.estera { color: var(--text-strong); font-weight: 600; }
+.chip.lingua { border-color: var(--accent); color: var(--accent); }
+.campo .posto { display: block; margin: 0; padding: 0; font-size: inherit; letter-spacing: 0; text-transform: none; }
+.campo .pcf-lingua {
+  width: 100%; font: inherit; font-size: 16px; color: var(--text); padding: 10px 12px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--border2);
+}
 .pc-altro { width: 32px; height: 32px; padding: 0; font-size: 16px; line-height: 1; color: var(--muted); }
 .pc-intesta {
   margin-top: 12px; padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
@@ -737,7 +749,7 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   </div>
   <div class="conti pc-conti" id="pc-conti"></div>
   <div class="pc-intesta" aria-hidden="true">
-    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Consegna</span><span>Hardware</span><span>Note</span><span></span>
+    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Lingua</span><span>Consegna</span><span>Hardware</span><span>Note</span><span></span>
   </div>
   <datalist id="pc-sw-usati"></datalist>
   <div id="pc-lista"></div>
@@ -903,6 +915,10 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
         <input id="pcf-consegna" type="month">
       </label>
     </div>
+    <label class="campo">
+      <span>Lingua del PC</span>
+      <div class="posto" id="pcf-lingua-posto"></div>
+    </label>
     <label class="campo">
       <span>Hardware</span>
       <input id="pcf-hardware" autocomplete="off" list="pcf-hardware-usati" placeholder="PC, licenze, schede, switch…">
