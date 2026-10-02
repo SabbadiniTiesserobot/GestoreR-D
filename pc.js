@@ -197,25 +197,28 @@ const pcCommesse = (() => {
       .some(v => chiaro(v).includes(q));
   }
 
+  // Sul PC la tabella si modifica sul posto, cella per cella, come un foglio; sul
+  // telefono una riga apre la scheda.
+  const tabella = window.matchMedia('(min-width: 761px)');
+  let ridisegnaDopo = false;
+  const inModifica = () => {
+    const a = document.activeElement;
+    return !!a && $('pc-lista').contains(a) && a.matches('[contenteditable], input');
+  };
+
   function disegna() {
     if (!$('vista-pc')) return;
+    // Mentre si scrive in una cella non si ridisegna (arriva magari una sincronizzazione):
+    // si rimanda a quando si esce dalla tabella.
+    if (inModifica()) { ridisegnaDopo = true; disegnaConti(); return; }
+    disegnaConti();
+    const dl = $('pc-sw-usati');
+    dl.replaceChildren(...[...new Set([...SOFTWARE, ...usati('software')])].map(v => { const o = el('option'); o.value = v; return o; }));
     const q = chiaro($('pc-cerca').value);
     const tutti = dati.pc;
     const visibili = tutti.filter(p => corrisponde(p, q) && !(nascondiFatti && fatto(p)))
       .sort((a, b) => (a.consegna || '9999') .localeCompare(b.consegna || '9999') ||
         confronto.compare(a.commesse, b.commesse));
-
-    // I conti in alto: quanti, e quanti ancora da fare per stato.
-    const conti = $('pc-conti');
-    conti.replaceChildren();
-    const b = t => el('b', null, String(t));
-    const aperti = tutti.filter(p => !fatto(p));
-    conti.append(b(tutti.length), tutti.length === 1 ? ' PC' : ' PC');
-    const perStato = new Map();
-    for (const p of aperti) perStato.set(p.stato || 'senza stato', (perStato.get(p.stato || 'senza stato') || 0) + 1);
-    for (const [s, n] of [...perStato.entries()].sort((x, y) => STATI.indexOf(x[0]) - STATI.indexOf(y[0]))) {
-      conti.append(' · ', b(n), ' ' + chiaro(s));
-    }
 
     $('pc-nascondi').checked = nascondiFatti;
     const lista = $('pc-lista');
@@ -246,7 +249,24 @@ const pcCommesse = (() => {
     }
   }
 
+  /** I conti in alto: quanti, e quanti ancora da fare per stato. */
+  function disegnaConti() {
+    const tutti = dati.pc;
+    const conti = $('pc-conti');
+    conti.replaceChildren();
+    const b = t => el('b', null, String(t));
+    const aperti = tutti.filter(p => !fatto(p));
+    conti.append(b(tutti.length), tutti.length === 1 ? ' PC' : ' PC');
+    const perStato = new Map();
+    for (const p of aperti) perStato.set(p.stato || 'senza stato', (perStato.get(p.stato || 'senza stato') || 0) + 1);
+    for (const [s, n] of [...perStato.entries()].sort((x, y) => STATI.indexOf(x[0]) - STATI.indexOf(y[0]))) {
+      conti.append(' · ', b(n), ' ' + chiaro(s));
+    }
+
+  }
+
   function riga(p) {
+    if (tabella.matches) return rigaModificabile(p);
     const r = el('div', 'pc-riga' + (p.stornata ? ' stornata' : ''));
     r.tabIndex = 0;
     r.setAttribute('role', 'button');
@@ -256,7 +276,19 @@ const pcCommesse = (() => {
     const software = el('div', 'pc-software');
     for (const s of p.software) software.append(el('span', 'chip', s));
 
-    // Lo stato si cambia direttamente dalla lista: è la cosa che si cambia più spesso.
+    const stato = selettoreStato(p);
+    const hardware = el('div', 'pc-hardware', p.hardware);
+    const note = el('div', 'pc-note', testoNote(p));
+    r.append(commesse, cliente, software, stato, hardware, note);
+    r.addEventListener('click', () => apri(p.id));
+    r.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === r) apri(p.id); });
+    return r;
+  }
+
+  const testoNote = p => (p.stornata && !/stornat/i.test(p.note) ? ['stornata', p.note].filter(Boolean).join(' · ') : p.note);
+
+  /** Lo stato si cambia direttamente dalla lista: è la cosa che si cambia più spesso. */
+  function selettoreStato(p) {
     const stato = el('select', 'pc-stato ' + classeStato(p.stato));
     stato.setAttribute('aria-label', `Stato del PC ${p.commesse}`);
     for (const s of [...new Set([...STATI, ...usati('stato'), p.stato].filter(Boolean))]) {
@@ -273,12 +305,108 @@ const pcCommesse = (() => {
       salva();
       disegna();
     });
+    return stato;
+  }
 
-    const hardware = el('div', 'pc-hardware', p.hardware);
-    const note = el('div', 'pc-note', p.stornata && !/stornat/i.test(p.note) ? ['stornata', p.note].filter(Boolean).join(' · ') : p.note);
-    r.append(commesse, cliente, software, stato, hardware, note);
-    r.addEventListener('click', () => apri(p.id));
-    r.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === r) apri(p.id); });
+  // ─────────────── la riga che si modifica sul posto (PC)
+
+  function cambia(p, valori, { ridisegna = false } = {}) {
+    Object.assign(p, valori, { modificato: new Date().toISOString() });
+    salva();
+    if (ridisegna) disegna();
+    else disegnaConti();
+  }
+
+  /**
+   * Una cella di testo che si scrive direttamente: Invio conferma, Esc rimette com'era,
+   * uscire dalla cella salva.
+   */
+  function cella(p, chiave, classe, segnaposto, pulisci = v => v) {
+    const c = el('div', classe + ' modificabile', p[chiave]);
+    try { c.contentEditable = 'plaintext-only'; } catch (_) { c.contentEditable = 'true'; }
+    c.spellcheck = false;
+    c.dataset.vuoto = segnaposto;
+    c.setAttribute('role', 'textbox');
+    c.setAttribute('aria-label', segnaposto);
+    c.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); c.blur(); }
+      else if (e.key === 'Escape') { e.preventDefault(); c.textContent = p[chiave]; c.blur(); }
+    });
+    c.addEventListener('blur', () => {
+      const v = pulisci(testo(c.textContent).replace(/\s+/g, ' '));
+      if (v !== p[chiave]) cambia(p, { [chiave]: v });
+      c.textContent = p[chiave];
+    });
+    return c;
+  }
+
+  function cellaSoftware(p) {
+    const box = el('div', 'pc-software');
+    for (const s of p.software) {
+      const b = el('button', 'chip togli', s);
+      b.type = 'button';
+      b.title = `Togli ${s}`;
+      b.addEventListener('click', () => {
+        cambia(p, { software: p.software.filter(x => x !== s) }, { ridisegna: true });
+        mostraMessaggio(`Tolto ${s}.`, 'Annulla', () => cambia(p, { software: [...p.software, s] }, { ridisegna: true }));
+      });
+      box.append(b);
+    }
+    const piu = el('button', 'chip piu', '+');
+    piu.type = 'button';
+    piu.title = 'Aggiungi software';
+    piu.setAttribute('aria-label', 'Aggiungi software');
+    piu.addEventListener('click', () => {
+      const i = el('input', 'pc-sw-nuovo');
+      i.setAttribute('list', 'pc-sw-usati');
+      i.placeholder = 'software';
+      let chiuso = false;   // togliere il campo lo fa uscire, e l'uscita richiamerebbe fine
+      const fine = salvare => {
+        if (chiuso) return;
+        chiuso = true;
+        const v = testo(i.value);
+        i.remove();
+        if (salvare && v && !p.software.includes(v)) cambia(p, { software: [...p.software, v] }, { ridisegna: true });
+        else disegna();
+      };
+      i.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); fine(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); fine(false); }
+      });
+      i.addEventListener('blur', () => fine(true));
+      piu.replaceWith(i);
+      i.focus();
+    });
+    box.append(piu);
+    return box;
+  }
+
+  function rigaModificabile(p) {
+    const r = el('div', 'pc-riga sul-posto' + (p.stornata ? ' stornata' : ''));
+    const consegna = el('input', 'pc-consegna');
+    consegna.type = 'month';
+    consegna.value = p.consegna;
+    consegna.setAttribute('aria-label', 'Mese di consegna');
+    consegna.addEventListener('change', () => {
+      const v = /^\d{4}-\d{2}$/.test(consegna.value) ? consegna.value : '';
+      // Cambiando mese il PC passa a un altro gruppo: qui sì che si ridisegna.
+      if (v !== p.consegna) { cambia(p, { consegna: v }); consegna.blur(); disegna(); }
+    });
+    const altro = el('button', 'pc-altro', '⋯');
+    altro.type = 'button';
+    altro.title = 'Tutti i campi, stornata, elimina';
+    altro.setAttribute('aria-label', `Apri la scheda del PC ${p.commesse}`);
+    altro.addEventListener('click', () => apri(p.id));
+
+    r.append(
+      cella(p, 'commesse', 'pc-commesse mono', 'commessa', v => v.replace(/\s*\+\s*/g, ' + ')),
+      cella(p, 'cliente', 'pc-cliente', 'cliente'),
+      cellaSoftware(p),
+      selettoreStato(p),
+      consegna,
+      cella(p, 'hardware', 'pc-hardware', 'hardware'),
+      cella(p, 'note', 'pc-note', 'note'),
+      altro);
     return r;
   }
 
@@ -512,6 +640,13 @@ const pcCommesse = (() => {
     $('pci-annulla').addEventListener('click', () => $('importa-pc').close());
 
     window.addEventListener('storage', e => { if (e.key === CHIAVE) { dati = carica(); disegna(); } });
+    $('pc-lista').addEventListener('focusout', e => {
+      if (ridisegnaDopo && !$('pc-lista').contains(e.relatedTarget)) {
+        ridisegnaDopo = false;
+        setTimeout(disegna, 0);
+      }
+    });
+    tabella.addEventListener('change', disegna);
     onedrive.registra(sincronizza);
     disegna();
   }
