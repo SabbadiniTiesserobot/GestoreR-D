@@ -283,7 +283,10 @@ th.c-foto { text-align: center; }
 .cella .tot { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cella.vuota .nome { color: var(--faint); }
 .cella.spenta { filter: grayscale(1); opacity: .3; }
-.cella:focus { outline: none; }
+/* Il fuoco della tastiera non deve cancellare il contorno dello slot scelto. */
+.cella:focus:not(.scelta) { outline: none; }
+.cella.vuota.scelta { background: rgba(15, 143, 125, .1); }
+@media (prefers-color-scheme: dark) { .cella.vuota.scelta { background: rgba(91, 217, 192, .12); } }
 
 /* La presa per allungare: al centro del bordo inferiore del blocco, larga 46 px. Col
    mouse compare passandoci sopra; col dito si vede sempre, un po' smorzata. */
