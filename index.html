@@ -138,6 +138,13 @@ main.pc { max-width: 1400px; }
   color: var(--text2);
 }
 .pc-mese h2 span { color: var(--faint); font-weight: 400; }
+/* Il mese attuale: filetto e targhetta d'accento, perché si trovi a colpo d'occhio. */
+.pc-mese.corrente h2 { color: var(--accent); }
+.pc-mese.corrente .pc-gruppo { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pc-mese h2 .questo-mese {
+  margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .04em; background: var(--accent); color: var(--on-accent);
+}
 .pc-gruppo { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .pc-intesta, .pc-riga {
   display: grid; gap: 4px 10px; align-items: center;

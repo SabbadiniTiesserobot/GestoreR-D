@@ -1734,7 +1734,7 @@ const ore = (() => {
       b.setAttribute('aria-selected', String(b.dataset.scheda === nome)));
     scriviLocale(CHIAVE_SCHEDA, nome);
     if (nome === 'ore') disegna();
-    if (nome === 'pc') pcCommesse.disegna();
+    if (nome === 'pc') pcCommesse.mostra();
   }
 
   // ─────────────── avvio
