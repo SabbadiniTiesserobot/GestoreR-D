@@ -166,18 +166,10 @@ main.pc { max-width: 1400px; }
   color: var(--text); background: transparent; border: 1px solid transparent;
 }
 .pc-consegna:hover, .pc-consegna:focus { border-color: var(--border2); background: var(--control); outline: none; }
-.pc-lingua {
-  width: 100%; font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 8px; cursor: pointer;
-  color: var(--faint); background: transparent; border: 1px solid transparent;
-}
-.pc-lingua:hover, .pc-lingua:focus { border-color: var(--border2); background: var(--control); outline: none; }
-.pc-lingua.estera { color: var(--text-strong); font-weight: 600; }
+.pc-lingue { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pc-vuoto-elenco { font-size: 13px; color: var(--faint); margin-right: 2px; }
+.campo .sottile { font-weight: 400; letter-spacing: 0; text-transform: none; }
 .chip.lingua { border-color: var(--accent); color: var(--accent); }
-.campo .posto { display: block; margin: 0; padding: 0; font-size: inherit; letter-spacing: 0; text-transform: none; }
-.campo .pcf-lingua {
-  width: 100%; font: inherit; font-size: 16px; color: var(--text); padding: 10px 12px; border-radius: 8px;
-  background: var(--bg); border: 1px solid var(--border2);
-}
 .pc-altro { width: 32px; height: 32px; padding: 0; font-size: 16px; line-height: 1; color: var(--muted); }
 .pc-intesta {
   margin-top: 12px; padding: 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
@@ -749,9 +741,10 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
   </div>
   <div class="conti pc-conti" id="pc-conti"></div>
   <div class="pc-intesta" aria-hidden="true">
-    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Lingua</span><span>Consegna</span><span>Hardware</span><span>Note</span><span></span>
+    <span>Commessa</span><span>Cliente</span><span>Software</span><span>Stato</span><span>Lingue</span><span>Consegna</span><span>Hardware</span><span>Note</span><span></span>
   </div>
   <datalist id="pc-sw-usati"></datalist>
+  <datalist id="pc-lingue-usate"></datalist>
   <div id="pc-lista"></div>
   <div class="vuoto" id="pc-vuoto" hidden></div>
 </main>
@@ -915,10 +908,14 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
         <input id="pcf-consegna" type="month">
       </label>
     </div>
-    <label class="campo">
-      <span>Lingua del PC</span>
-      <div class="posto" id="pcf-lingua-posto"></div>
-    </label>
+    <div class="campo">
+      <span>Lingue del PC <small class="sottile">(nessuna = solo italiano)</small></span>
+      <div class="chips" id="pcf-lingue"></div>
+      <div class="altro-sw">
+        <input id="pcf-altra-lingua" placeholder="Altra lingua…" autocomplete="off" aria-label="Altra lingua">
+        <button type="button" id="pcf-aggiungi-lingua">Aggiungi</button>
+      </div>
+    </div>
     <label class="campo">
       <span>Hardware</span>
       <input id="pcf-hardware" autocomplete="off" list="pcf-hardware-usati" placeholder="PC, licenze, schede, switch…">

@@ -4,7 +4,7 @@
 //
 // I PC delle commesse da far preparare internamente: per ognuno le commesse (anche
 // più di una, «26xxx + 26yyy»: un PC per due commesse), il cliente, il software da
-// installare, lo stato della preparazione, la lingua del PC se non è l'italiano,
+// installare, lo stato della preparazione, le lingue del PC se non è solo italiano,
 // l'hardware, le note e il mese di consegna.
 //
 // Il codice è pubblico: qui non c'è nessun dato. L'elenco sta solo nel file
@@ -14,7 +14,7 @@
 // «modificato» più recente, e un'eliminazione vince sulle versioni più vecchie.
 //
 // { versione: 1,
-//   pc: [ { id, commesse, cliente, software: [..], stato, lingua, hardware, note,
+//   pc: [ { id, commesse, cliente, software: [..], stato, lingue: [..], hardware, note,
 //           consegna: "AAAA-MM", stornata, creato, modificato } ],
 //   eliminati: [ { id, quando } ] }
 
@@ -31,9 +31,8 @@ const pcCommesse = (() => {
   // può avere altri: si mostrano e si possono scegliere lo stesso.
   const STATI = ['Da ordinare', 'Attesa materiale', 'Pronto Tiesse', 'Pronto OS', 'Installato'];
   const SOFTWARE = ['TS-Vision', 'Supervisore', 'SW 4.0', 'Laser', 'TS-Simulator'];
-  // Le lingue più frequenti; vuota vuol dire italiano. Se ne può scrivere un'altra.
+  // Le lingue più frequenti; nessuna vuol dire solo italiano. Se ne possono aggiungere.
   const LINGUE = ['Inglese', 'Spagnolo', 'Portoghese (Brasile)'];
-  const ALTRA = '\u0000altra';
   const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio',
     'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 
@@ -51,6 +50,8 @@ const pcCommesse = (() => {
 
   // ─────────────── i dati
 
+  const elenco = v => [...new Set((Array.isArray(v) ? v : testo(v).split(/[,;\n]/)).map(testo).filter(Boolean))];
+
   function normalizza(r) {
     if (!r || typeof r !== 'object') return null;
     const adesso = new Date().toISOString();
@@ -63,7 +64,9 @@ const pcCommesse = (() => {
       cliente: testo(r.cliente),
       software: [...new Set(software)],
       stato: testo(r.stato),
-      lingua: testo(r.lingua),   // vuota = italiano
+      // Nessuna lingua = solo italiano. Il vecchio campo «lingua» (una sola) diventa la lista.
+      lingue: elenco(Array.isArray(r.lingue) ? r.lingue : [r.lingua]),
+      lingua: undefined,
       hardware: testo(r.hardware),
       note: testo(r.note),
       consegna: /^\d{4}-\d{2}$/.test(testo(r.consegna)) ? testo(r.consegna) : '',
@@ -198,7 +201,7 @@ const pcCommesse = (() => {
 
   function corrisponde(p, q) {
     if (!q) return true;
-    return [p.commesse, p.cliente, p.stato, p.lingua, p.hardware, p.note, ...p.software]
+    return [p.commesse, p.cliente, p.stato, p.hardware, p.note, ...p.software, ...p.lingue]
       .some(v => chiaro(v).includes(q));
   }
 
@@ -219,6 +222,7 @@ const pcCommesse = (() => {
     disegnaConti();
     const dl = $('pc-sw-usati');
     dl.replaceChildren(...[...new Set([...SOFTWARE, ...usati('software')])].map(v => { const o = el('option'); o.value = v; return o; }));
+    $('pc-lingue-usate').replaceChildren(...[...new Set([...LINGUE, ...usati('lingue')])].map(v => { const o = el('option'); o.value = v; return o; }));
     const q = chiaro($('pc-cerca').value);
     const tutti = dati.pc;
     const visibili = tutti.filter(p => corrisponde(p, q) && !(nascondiFatti && fatto(p)))
@@ -282,7 +286,7 @@ const pcCommesse = (() => {
     const software = el('div', 'pc-software');
     for (const s of p.software) software.append(el('span', 'chip', s));
 
-    if (p.lingua) software.append(el('span', 'chip lingua', p.lingua));
+    for (const l of p.lingue) software.append(el('span', 'chip lingua', l));
 
     const stato = selettoreStato(p);
     const hardware = el('div', 'pc-hardware', p.hardware);
@@ -314,36 +318,6 @@ const pcCommesse = (() => {
       disegna();
     });
     return stato;
-  }
-
-  /** La lingua: italiano (vuota), le più frequenti, quelle già usate, o un'altra. */
-  function selettoreLingua(p, cambiaFn, classe) {
-    const s = el('select', classe + (p && p.lingua ? ' estera' : ''));
-    s.setAttribute('aria-label', 'Lingua del PC');
-    const opzioni = [['', 'Italiano'], ...[...new Set([...LINGUE, ...usati('lingua'), p && p.lingua].filter(Boolean))].map(l => [l, l]), [ALTRA, 'Altra…']];
-    for (const [v, t] of opzioni) {
-      const o = el('option', null, t);
-      o.value = v;
-      s.append(o);
-    }
-    s.value = (p && p.lingua) || '';
-    s.dataset.prima = s.value;
-    s.addEventListener('change', () => {
-      let v = s.value;
-      if (v === ALTRA) {
-        v = testo(window.prompt('Quale lingua?') || '');
-        if (!v) { s.value = s.dataset.prima; return; }
-        if (!opzioni.some(([x]) => x === v)) {
-          const o = el('option', null, v);
-          o.value = v;
-          s.insertBefore(o, s.lastChild);
-        }
-        s.value = v;
-      }
-      s.dataset.prima = v;
-      if (cambiaFn) cambiaFn(v);
-    });
-    return s;
   }
 
   // ─────────────── la riga che si modifica sul posto (PC)
@@ -378,33 +352,38 @@ const pcCommesse = (() => {
     return c;
   }
 
-  function cellaSoftware(p) {
-    const box = el('div', 'pc-software');
-    for (const s of p.software) {
-      const b = el('button', 'chip togli', s);
+  /**
+   * Una cella con un elenco (software, lingue): un clic su un chip lo toglie, «+» apre un
+   * campo con le voci già usate come suggerimenti.
+   */
+  function cellaElenco(p, campo, { lista, nome, vuoto = '', classe }) {
+    const box = el('div', classe);
+    if (!p[campo].length && vuoto) box.append(el('span', 'pc-vuoto-elenco', vuoto));
+    for (const s of p[campo]) {
+      const b = el('button', 'chip togli' + (campo === 'lingue' ? ' lingua' : ''), s);
       b.type = 'button';
       b.title = `Togli ${s}`;
       b.addEventListener('click', () => {
-        cambia(p, { software: p.software.filter(x => x !== s) }, { ridisegna: true });
-        mostraMessaggio(`Tolto ${s}.`, 'Annulla', () => cambia(p, { software: [...p.software, s] }, { ridisegna: true }));
+        cambia(p, { [campo]: p[campo].filter(x => x !== s) }, { ridisegna: true });
+        mostraMessaggio(`Tolto ${s}.`, 'Annulla', () => cambia(p, { [campo]: [...p[campo], s] }, { ridisegna: true }));
       });
       box.append(b);
     }
     const piu = el('button', 'chip piu', '+');
     piu.type = 'button';
-    piu.title = 'Aggiungi software';
-    piu.setAttribute('aria-label', 'Aggiungi software');
+    piu.title = `Aggiungi ${nome}`;
+    piu.setAttribute('aria-label', `Aggiungi ${nome}`);
     piu.addEventListener('click', () => {
       const i = el('input', 'pc-sw-nuovo');
-      i.setAttribute('list', 'pc-sw-usati');
-      i.placeholder = 'software';
+      i.setAttribute('list', lista);
+      i.placeholder = nome;
       let chiuso = false;   // togliere il campo lo fa uscire, e l'uscita richiamerebbe fine
       const fine = salvare => {
         if (chiuso) return;
         chiuso = true;
         const v = testo(i.value);
         i.remove();
-        if (salvare && v && !p.software.includes(v)) cambia(p, { software: [...p.software, v] }, { ridisegna: true });
+        if (salvare && v && !p[campo].includes(v)) cambia(p, { [campo]: [...p[campo], v] }, { ridisegna: true });
         else disegna();
       };
       i.addEventListener('keydown', e => {
@@ -412,6 +391,8 @@ const pcCommesse = (() => {
         else if (e.key === 'Escape') { e.preventDefault(); fine(false); }
       });
       i.addEventListener('blur', () => fine(true));
+      const segnaposto = box.querySelector('.pc-vuoto-elenco');
+      if (segnaposto) segnaposto.remove();
       piu.replaceWith(i);
       i.focus();
     });
@@ -439,9 +420,9 @@ const pcCommesse = (() => {
     r.append(
       cella(p, 'commesse', 'pc-commesse mono', 'commessa', v => v.replace(/\s*\+\s*/g, ' + ')),
       cella(p, 'cliente', 'pc-cliente', 'cliente'),
-      cellaSoftware(p),
+      cellaElenco(p, 'software', { lista: 'pc-sw-usati', nome: 'software', classe: 'pc-software' }),
       selettoreStato(p),
-      selettoreLingua(p, v => cambia(p, { lingua: v }, { ridisegna: true }), 'pc-lingua'),
+      cellaElenco(p, 'lingue', { lista: 'pc-lingue-usate', nome: 'lingua', vuoto: 'Italiano', classe: 'pc-lingue' }),
       consegna,
       cella(p, 'hardware', 'pc-hardware', 'hardware'),
       cella(p, 'note', 'pc-note', 'note'),
@@ -452,22 +433,27 @@ const pcCommesse = (() => {
   // ─────────────── la scheda di un PC
 
   let aperto = null;
-  let softwareScelto = [];
+  // Nella scheda software e lingue sono chip da accendere e spegnere.
+  const scelti = { software: [], lingue: [] };
+  const BASE = { software: SOFTWARE, lingue: LINGUE };
+  const BOX = { software: 'pcf-software', lingue: 'pcf-lingue' };
 
-  function disegnaSoftware() {
-    const box = $('pcf-software');
+  function disegnaScelti(campo) {
+    const box = $(BOX[campo]);
     box.replaceChildren();
-    for (const s of [...new Set([...SOFTWARE, ...usati('software'), ...softwareScelto])]) {
-      const b = el('button', 'chip' + (softwareScelto.includes(s) ? ' acceso' : ''), s);
+    for (const s of [...new Set([...BASE[campo], ...usati(campo), ...scelti[campo]])]) {
+      const acceso = scelti[campo].includes(s);
+      const b = el('button', 'chip' + (acceso ? ' acceso' : ''), s);
       b.type = 'button';
-      b.setAttribute('aria-pressed', String(softwareScelto.includes(s)));
+      b.setAttribute('aria-pressed', String(acceso));
       b.addEventListener('click', () => {
-        softwareScelto = softwareScelto.includes(s) ? softwareScelto.filter(x => x !== s) : [...softwareScelto, s];
-        disegnaSoftware();
+        scelti[campo] = acceso ? scelti[campo].filter(x => x !== s) : [...scelti[campo], s];
+        disegnaScelti(campo);
       });
       box.append(b);
     }
   }
+  const disegnaSoftware = () => disegnaScelti('software');
 
   function apri(id) {
     const p = id ? dati.pc.find(x => x.id === id) : null;
@@ -476,11 +462,13 @@ const pcCommesse = (() => {
     $('pcf-commesse').value = p ? p.commesse : '';
     $('pcf-cliente').value = p ? p.cliente : '';
     $('pcf-hardware').value = p ? p.hardware : '';
-    $('pcf-lingua-posto').replaceChildren(selettoreLingua(p, null, 'pcf-lingua'));
+    scelti.lingue = p ? [...p.lingue] : [];
+    disegnaScelti('lingue');
+    $('pcf-altra-lingua').value = '';
     $('pcf-consegna').value = p ? p.consegna : '';
     $('pcf-note').value = p ? p.note : '';
     $('pcf-stornata').checked = p ? p.stornata : false;
-    softwareScelto = p ? [...p.software] : [];
+    scelti.software = p ? [...p.software] : [];
     disegnaSoftware();
     $('pcf-altro').value = '';
 
@@ -506,9 +494,16 @@ const pcCommesse = (() => {
 
   function chiudi() { $('scheda-pc').close(); aperto = null; }
 
+  function aggiungiAltraLingua() {
+    const t = testo($('pcf-altra-lingua').value);
+    if (t && !scelti.lingue.includes(t)) scelti.lingue.push(t);
+    $('pcf-altra-lingua').value = '';
+    disegnaScelti('lingue');
+  }
+
   function aggiungiAltro() {
     const t = testo($('pcf-altro').value);
-    if (t && !softwareScelto.includes(t)) softwareScelto.push(t);
+    if (t && !scelti.software.includes(t)) scelti.software.push(t);
     $('pcf-altro').value = '';
     disegnaSoftware();
   }
@@ -516,13 +511,14 @@ const pcCommesse = (() => {
   function salvaScheda(e) {
     e.preventDefault();
     if (testo($('pcf-altro').value)) aggiungiAltro();
+    if (testo($('pcf-altra-lingua').value)) aggiungiAltraLingua();
     const valori = {
       commesse: testo($('pcf-commesse').value).replace(/\s*\+\s*/g, ' + '),
       cliente: testo($('pcf-cliente').value),
-      software: [...softwareScelto],
+      software: [...scelti.software],
       stato: $('pcf-stato').value,
       hardware: testo($('pcf-hardware').value),
-      lingua: $('pcf-lingua-posto').querySelector('select').value.replace(ALTRA, ''),
+      lingue: [...scelti.lingue],
       consegna: $('pcf-consegna').value,
       note: testo($('pcf-note').value),
       stornata: $('pcf-stornata').checked
@@ -673,6 +669,8 @@ const pcCommesse = (() => {
     $('pcf-elimina').addEventListener('click', elimina);
     $('pcf-aggiungi-sw').addEventListener('click', aggiungiAltro);
     $('pcf-altro').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); aggiungiAltro(); } });
+    $('pcf-aggiungi-lingua').addEventListener('click', aggiungiAltraLingua);
+    $('pcf-altra-lingua').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); aggiungiAltraLingua(); } });
     $('scheda-pc').addEventListener('click', e => { if (e.target === $('scheda-pc')) chiudi(); });
 
     $('pc-importa-apri').addEventListener('click', () => { anteprimaImporta(); $('importa-pc').showModal(); $('pci-testo').focus(); });
