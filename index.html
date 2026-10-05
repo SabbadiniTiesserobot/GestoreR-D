@@ -1474,7 +1474,9 @@ const ONEDRIVE_CONFIG = {
   // Il tenant aziendale e non «common»: un'app registrata per i soli account della
   // propria directory con «common» verrebbe rifiutata (AADSTS50194).
   autorita: 'https://login.microsoftonline.com/tiesserobot.it',
-  ambiti: 'Files.ReadWrite offline_access',
+  // openid e profile danno il nome dell'account, che serve per rifare l'accesso in
+  // silenzio quando il rinnovo scade (vedi rinnovaInSilenzio).
+  ambiti: 'Files.ReadWrite offline_access openid profile',
   percorso: 'App gestione R&D/laser_servo_robot.json'
 };
 
@@ -1483,6 +1485,12 @@ const onedrive = (() => {
   const CHIAVE_ACCESSO = 'rd.onedrive.accesso';     // verifier e state durante il login
   const CHIAVE_ATTESA = 'rd.onedrive.inAttesa';     // modifiche non ancora inviate
   const CHIAVE_ULTIMA = 'rd.onedrive.ultima';
+  const CHIAVE_ACCOUNT = 'rd.onedrive.account';     // l'account con cui si è entrati
+  const CHIAVE_SILENZIO = 'rd.onedrive.silenzio';   // l'ultimo accesso tentato in silenzio
+  // Il rinnovo di un'app a pagina singola dura 24 ore da quando si è entrati, e Microsoft
+  // non lo lascia allungare. Poco prima che scada si rifà l'accesso in silenzio.
+  const RINNOVO_SICURO = 22 * 3600 * 1000;
+  const PAUSA_SILENZIO = 10 * 60 * 1000;
   const GRAPH = 'https://graph.microsoft.com/v1.0';
   const TIENI_ELIMINATI_GIORNI = 180;
 
@@ -1509,7 +1517,7 @@ const onedrive = (() => {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const casuale = n => b64url(crypto.getRandomValues(new Uint8Array(n)));
 
-  async function collega() {
+  async function collega({ silenzioso = false } = {}) {
     if (!configurato()) {
       mostraMessaggio('Manca il clientId dell\'app Microsoft: vedi ONEDRIVE_CONFIG nel codice.');
       return;
@@ -1520,7 +1528,8 @@ const onedrive = (() => {
 
     // In localStorage e non in sessionStorage: su iPhone il login può tornare in una
     // vista diversa da quella da cui è partito.
-    scrivi(CHIAVE_ACCESSO, JSON.stringify({ verifier, stato: statoOAuth }));
+    scrivi(CHIAVE_ACCESSO, JSON.stringify({ verifier, stato: statoOAuth, silenzioso }));
+    const account = leggi(CHIAVE_ACCOUNT);
 
     const q = new URLSearchParams({
       client_id: ONEDRIVE_CONFIG.clientId,
@@ -1530,7 +1539,10 @@ const onedrive = (() => {
       state: statoOAuth,
       code_challenge: sfida,
       code_challenge_method: 'S256',
-      prompt: 'select_account'
+      // In silenzio Microsoft non mostra niente: se la sua sessione c'è ancora torna
+      // subito con il codice, altrimenti torna con un errore e si mostra la schermata.
+      prompt: silenzioso ? 'none' : 'select_account',
+      ...(account ? { login_hint: account } : {})
     });
     location.assign(`${ONEDRIVE_CONFIG.autorita}/oauth2/v2.0/authorize?${q}`);
   }
@@ -1546,6 +1558,11 @@ const onedrive = (() => {
     scrivi(CHIAVE_ACCESSO, null);
 
     if (q.has('error')) {
+      if (atteso && atteso.silenzioso) {
+        // La sessione Microsoft è finita davvero: serve l'accesso con la password.
+        erroreTesto = 'La sessione Microsoft è scaduta: accedi di nuovo.';
+        return;
+      }
       if (q.get('error') !== 'access_denied') {
         mostraMessaggio('Accesso a OneDrive non riuscito: ' + (q.get('error_description') || q.get('error')));
       }
@@ -1561,11 +1578,46 @@ const onedrive = (() => {
       code: q.get('code'),
       redirect_uri: indirizzo(),
       code_verifier: atteso.verifier
-    });
-    mostraMessaggio('OneDrive collegato.');
+    }, { nuovo: true });
+    if (!atteso.silenzioso) mostraMessaggio('OneDrive collegato.');
   }
 
-  async function chiediToken(parametri) {
+  /** Il nome dell'account dall'id_token (solo per suggerirlo a Microsoft al prossimo accesso). */
+  function accountDa(idToken) {
+    try {
+      const parte = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const dati = JSON.parse(decodeURIComponent(escape(atob(parte))));
+      return dati.preferred_username || dati.email || dati.upn || null;
+    } catch (_) { return null; }
+  }
+
+  /**
+   * Rifà l'accesso senza chiedere niente, se la sessione Microsoft c'è ancora: un giro
+   * da login.microsoftonline.com e ritorno. Solo quando non disturba (nessuna finestra
+   * aperta, niente che si stia scrivendo) e non più di una volta ogni dieci minuti.
+   */
+  function rinnovaInSilenzio() {
+    if (DATI_IN_CARTELLA || !configurato() || !navigator.onLine) return false;
+    if (!leggi(CHIAVE_ACCOUNT) && !token()) return false;
+    if (Date.now() - Number(leggi(CHIAVE_SILENZIO) || 0) < PAUSA_SILENZIO) return false;
+    if (document.querySelector('dialog[open]')) return false;
+    const a = document.activeElement;
+    if (a && a.matches && a.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return false;
+    scrivi(CHIAVE_SILENZIO, String(Date.now()));
+    collega({ silenzioso: true }).catch(() => {});
+    return true;
+  }
+
+  /** Vicino alla scadenza delle 24 ore, o già scaduto ma con un account noto. */
+  function daRinnovare() {
+    const t = token();
+    if (!t) return !!leggi(CHIAVE_ACCOUNT);
+    // Un token salvato prima di questa versione non dice da quando corre: non si anticipa,
+    // si rientra in silenzio quando il rinnovo fallisce davvero.
+    return !!t.dal && Date.now() - t.dal > RINNOVO_SICURO;
+  }
+
+  async function chiediToken(parametri, { nuovo = false } = {}) {
     const risposta = await fetch(`${ONEDRIVE_CONFIG.autorita}/oauth2/v2.0/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1579,11 +1631,16 @@ const onedrive = (() => {
       e.daRicollegare = risposta.status === 400 || risposta.status === 401;
       throw e;
     }
+    const prima = token() || {};
     const t = {
       accesso: corpo.access_token,
-      rinnovo: corpo.refresh_token || (token() || {}).rinnovo,
-      scade: Date.now() + (corpo.expires_in || 3600) * 1000
+      rinnovo: corpo.refresh_token || prima.rinnovo,
+      scade: Date.now() + (corpo.expires_in || 3600) * 1000,
+      // Da quando corre il rinnovo: le 24 ore partono dall'accesso, non dall'ultimo rinnovo.
+      dal: nuovo ? Date.now() : (prima.dal || Date.now())
     };
+    const account = corpo.id_token && accountDa(corpo.id_token);
+    if (account) scrivi(CHIAVE_ACCOUNT, account);
     scrivi(CHIAVE_TOKEN, JSON.stringify(t));
     return t.accesso;
   }
@@ -1604,6 +1661,7 @@ const onedrive = (() => {
 
   function scollega() {
     scrivi(CHIAVE_TOKEN, null);
+    scrivi(CHIAVE_ACCOUNT, null);   // scollegato apposta: niente accesso in silenzio
     scrivi(CHIAVE_ATTESA, null);
     scrivi(CHIAVE_ULTIMA, null);
     stato = 'fermo';
@@ -1858,6 +1916,9 @@ const onedrive = (() => {
       erroreTesto = e.daRicollegare
         ? (DATI_IN_CARTELLA ? 'Serve di nuovo il permesso per la cartella: riaprila.' : 'Accesso scaduto: ricollega OneDrive.')
         : e.message;
+      // Scaduto il rinnovo: si prova a rientrare da soli (se adesso non disturba, lo si
+      // rifà quando si torna sull'app).
+      if (e.daRicollegare && !DATI_IN_CARTELLA) rinnovaInSilenzio();
       disegnaStatoDati();
     }
   }
@@ -1996,7 +2057,9 @@ const onedrive = (() => {
     // Tornando sull'app (dal PC o dopo averla lasciata in background) si prende
     // quello che è cambiato altrove nel frattempo.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') sincronizza();
+      if (document.visibilityState !== 'visible') return;
+      if (!DATI_IN_CARTELLA && daRinnovare() && rinnovaInSilenzio()) return;
+      sincronizza();
     });
 
     if (DATI_IN_CARTELLA) {
@@ -2010,6 +2073,9 @@ const onedrive = (() => {
       erroreTesto = 'Accesso a OneDrive non riuscito: ' + e.message;
     }
     inAccesso = false;
+    // All'apertura, se le 24 ore stanno per finire (o sono finite), si rientra subito in
+    // silenzio, prima che il rinnovo fallisca a metà lavoro.
+    if (!DATI_IN_CARTELLA && daRinnovare() && rinnovaInSilenzio()) return;
     disegnaStatoDati();
     await sincronizza();
   }
