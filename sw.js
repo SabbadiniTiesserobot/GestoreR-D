@@ -4,7 +4,7 @@
 // I dati non passano di qui: stanno in localStorage, e la sincronizzazione con
 // OneDrive va verso altri domini, che questo service worker lascia stare.
 
-const CACHE = 'laser-v19';
+const CACHE = 'laser-v20';
 const FILE = ['./', 'index.html', 'effetti.js', 'pc.js', 'ore.js', 'manifest.webmanifest', 'icona-rd-180.png', 'icona-rd-512.png'];
 
 self.addEventListener('install', e => {
@@ -19,9 +19,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  const url = new URL(e.request.url);
-  // Le richieste dei dati al server interno (api/) vanno sempre in rete, mai in cache.
-  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/api/')) return;
+  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
 
   // «no-cache» chiede sempre al server se il file è cambiato: senza, il browser
   // potrebbe rispondere con la sua copia dei 10 minuti di GitHub Pages.
