@@ -29,7 +29,7 @@ const pcCommesse = (() => {
 
   // Gli stati della preparazione, nell'ordine in cui di solito si passa. Il file ne
   // può avere altri: si mostrano e si possono scegliere lo stesso.
-  const STATI = ['Da ordinare', 'Attesa materiale', 'Pronto Tiesse', 'Pronto OS', 'Installato'];
+  const STATI = ['Da ordinare', 'Attesa materiale', 'Attesa preparazione', 'Pronto Tiesse', 'Pronto OS', 'Installato'];
   const SOFTWARE = ['TS-Vision', 'Supervisore', 'SW 4.0', 'Laser', 'TS-Simulator'];
   // Le lingue più frequenti; nessuna vuol dire solo italiano. Se ne possono aggiungere.
   const LINGUE = ['Inglese', 'Spagnolo', 'Portoghese (Brasile)'];
