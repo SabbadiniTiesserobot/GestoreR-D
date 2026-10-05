@@ -21,6 +21,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Gestione R&amp;D">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- Il server interno (server/server.js) mette qui window.RD_SERVER = true: allora i dati
+     stanno su quel server e OneDrive non c'entra. Su GitHub Pages resta un commento. -->
+<!--RD_SERVER-->
 <link rel="icon" href="icona-rd-512.png">
 <link rel="apple-touch-icon" href="icona-rd-180.png">
 
@@ -999,6 +1002,9 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 <script>
 'use strict';
 
+// Servita dal server interno: dati su quel server, niente OneDrive né accesso Microsoft.
+const SERVER_INTERNO = window.RD_SERVER === true;
+
 // ════════════════════════════════════════════════ i dati
 //
 // Il file ha la stessa forma di quello che sta su OneDrive:
@@ -1319,7 +1325,8 @@ function disegnaStatoDati() {
     ? new Date(ultima).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  stato.append('I dati stanno su OneDrive e in questo dispositivo. ',
+  stato.append(SERVER_INTERNO ? 'I dati stanno sul server interno e in questo dispositivo. '
+    : 'I dati stanno su OneDrive e in questo dispositivo. ',
     quando ? `Ultima copia esportata a mano: ${quando}.` : 'Qui puoi farne anche una copia a mano.');
 
   onedrive.disegna();
@@ -1479,13 +1486,14 @@ const onedrive = (() => {
   let modifiche = 0;     // contatore: dice se durante l'invio è cambiato qualcosa
   let inAccesso = new URLSearchParams(location.search).has('code');   // di ritorno dal login
 
-  const configurato = () => !!ONEDRIVE_CONFIG.clientId;
+  // Sul server interno i file passano dal server, e non c'è niente da collegare.
+  const configurato = () => SERVER_INTERNO || !!ONEDRIVE_CONFIG.clientId;
   const leggi = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const scrivi = (k, v) => {
     try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
   };
   const token = () => { try { return JSON.parse(leggi(CHIAVE_TOKEN)); } catch (_) { return null; } };
-  const collegato = () => configurato() && !!token();
+  const collegato = () => SERVER_INTERNO || (configurato() && !!token());
   const indirizzo = () => location.origin + location.pathname;
 
   // ─────────────── accesso
@@ -1615,8 +1623,31 @@ const onedrive = (() => {
     return risposta;
   }
 
+  // Sul server interno: GET e PUT su api/file, con le stesse regole di OneDrive (eTag,
+  // If-Match per non sovrascrivere chi ha scritto nel frattempo).
+  const apiFile = percorso => `api/file?percorso=${encodeURIComponent(percorso)}`;
+
+  async function leggiFileServer(percorso) {
+    const r = await fetch(apiFile(percorso), { cache: 'no-store' });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`lettura di ${percorso} dal server: HTTP ${r.status}`);
+    return { testo: (await r.text()).replace(/^\uFEFF/, ''), eTag: r.headers.get('ETag') };
+  }
+
+  async function scriviFileServer(percorso, testo, eTag) {
+    const r = await fetch(apiFile(percorso), {
+      method: 'PUT',
+      body: testo,
+      headers: { 'Content-Type': 'application/json', ...(eTag ? { 'If-Match': eTag } : { 'If-None-Match': '*' }) }
+    });
+    if (r.status === 412) return false;
+    if (!r.ok) throw new Error(`scrittura di ${percorso} sul server: HTTP ${r.status}`);
+    return r.headers.get('ETag') || true;
+  }
+
   /** Un file su OneDrive: { testo, eTag }, o null se non c'è. */
   async function leggiFile(percorso) {
+    if (SERVER_INTERNO) return leggiFileServer(percorso);
     const r = await graph('GET', `/me/drive/root:/${percorsoUrl(percorso)}`);
     if (r.status === 404) return null;
     if (!r.ok) throw new Error(`lettura di ${percorso}: HTTP ${r.status}`);
@@ -1633,6 +1664,7 @@ const onedrive = (() => {
    * altro l'ha cambiato (o, senza eTag, se qualcuno l'ha appena creato).
    */
   async function scriviFile(percorso, testo, eTag) {
+    if (SERVER_INTERNO) return scriviFileServer(percorso, testo, eTag);
     const url = `/me/drive/root:/${percorsoUrl(percorso)}:/content` +
       (eTag ? '' : '?@microsoft.graph.conflictBehavior=fail');
     const r = await graph('PUT', url, {
@@ -1793,6 +1825,7 @@ const onedrive = (() => {
       : null;
     const [testo, classe] = {
       scollegato: ['OneDrive non collegato', 'errore-sinc'],
+      // (sul server interno non si è mai «scollegati»)
       sync: [stato === 'in-corso' ? 'Sincronizzazione in corso…' : 'Modifiche da inviare…', ''],
       errore: ['Sincronizzazione non riuscita: ' + erroreTesto, 'errore-sinc'],
       offline: ['Senza rete: le modifiche partiranno quando torna.', 'avviso'],
@@ -1802,7 +1835,7 @@ const onedrive = (() => {
     const bottone = $('od-icona');
     bottone.dataset.stato = icona;
     bottone.title = testo;
-    bottone.setAttribute('aria-label', 'OneDrive: ' + testo);
+    bottone.setAttribute('aria-label', (SERVER_INTERNO ? 'Server interno: ' : 'OneDrive: ') + testo);
 
     // Il pannello che si apre toccando l'icona.
     const box = $('stato-onedrive');
@@ -1814,7 +1847,9 @@ const onedrive = (() => {
       box.append(e);
     };
     riga(testo, 'riga-stato ' + classe);
-    riga(`File: ${ONEDRIVE_CONFIG.percorso}`, 'file');
+    riga(SERVER_INTERNO ? `Dati sul server interno (${location.host})` : `File: ${ONEDRIVE_CONFIG.percorso}`, 'file');
+    $('titolo-od').textContent = SERVER_INTERNO ? 'Server interno' : 'OneDrive';
+    $('od-scollega').hidden = SERVER_INTERNO;
     $('od-sincronizza').disabled = stato === 'in-corso';
   }
 
@@ -1844,7 +1879,7 @@ const onedrive = (() => {
 
     disegnaStatoDati();
     try {
-      await completaAccesso();
+      if (!SERVER_INTERNO) await completaAccesso();
     } catch (e) {
       erroreTesto = 'Accesso a OneDrive non riuscito: ' + e.message;
     }
