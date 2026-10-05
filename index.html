@@ -21,9 +21,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Gestione R&amp;D">
 <link rel="manifest" href="manifest.webmanifest">
-<!-- Il server interno (server/server.js) mette qui window.RD_SERVER = true: allora i dati
-     stanno su quel server e OneDrive non c'entra. Su GitHub Pages resta un commento. -->
-<!--RD_SERVER-->
 <link rel="icon" href="icona-rd-512.png">
 <link rel="apple-touch-icon" href="icona-rd-180.png">
 
@@ -244,6 +241,11 @@ body.vista-ore { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 .accesso h2 { margin: 0 0 6px; font-size: 18px; color: var(--text-strong); }
 .accesso p { margin: 0 0 18px; }
 .accesso .errore-sinc { color: var(--danger); }
+.accesso #od-cartella { display: block; margin: 12px auto 0; }
+.accesso #od-cartella[hidden], .accesso #od-torna[hidden] { display: none; }
+.accesso .link { display: block; margin: 12px auto 0; border: 0; background: none; color: var(--accent); text-decoration: underline; }
+.accesso .accesso-nota { margin-top: 18px; font-size: 12.5px; color: var(--faint); }
+body:not(.scollegato) .accesso-nota { display: none; }
 .pannello-od .riga-stato { margin-bottom: 4px; }
 .pannello-od .file { font-size: 13px; color: var(--muted); }
 .pannello-od .ok { color: var(--ok); }
@@ -798,10 +800,14 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
         </g>
       </svg>
   </div>
-  <h2>Collega OneDrive</h2>
+  <h2 id="accesso-titolo">Collega OneDrive</h2>
   <p id="accesso-testo">Ore e laser si salvano su OneDrive, così li ritrovi su telefono e PC.
      Collegalo per usare l'app.</p>
   <button type="button" class="primario" id="od-collega">Collega OneDrive</button>
+  <button type="button" id="od-cartella" hidden>Usa una cartella condivisa</button>
+  <button type="button" class="link" id="od-torna" hidden>Torna a OneDrive</button>
+  <p class="accesso-nota">Con una cartella condivisa della rete aziendale i PC e i laser li vedono
+     tutti quelli che la aprono, senza account Microsoft (solo Chrome o Edge sul PC).</p>
 </section>
 
 <dialog id="scheda-ore" class="scheda-ore" aria-labelledby="ore-sel">
@@ -1002,8 +1008,10 @@ dialog h2 { margin: 0 0 14px; font-size: 17px; color: var(--text-strong); }
 <script>
 'use strict';
 
-// Servita dal server interno: dati su quel server, niente OneDrive né accesso Microsoft.
-const SERVER_INTERNO = window.RD_SERVER === true;
+// I dati possono stare, invece che su OneDrive, in una cartella condivisa della rete
+// aziendale scelta col browser (Chrome o Edge sul PC). Allora niente accesso Microsoft,
+// e la scheda Ore non c'è: le ore sono personali e stanno con l'app del PC su OneDrive.
+const DATI_IN_CARTELLA = (() => { try { return localStorage.getItem('rd.modo') === 'cartella'; } catch (_) { return false; } })();
 
 // ════════════════════════════════════════════════ i dati
 //
@@ -1325,7 +1333,7 @@ function disegnaStatoDati() {
     ? new Date(ultima).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  stato.append(SERVER_INTERNO ? 'I dati stanno sul server interno e in questo dispositivo. '
+  stato.append(DATI_IN_CARTELLA ? 'I dati stanno nella cartella condivisa e in questo dispositivo. '
     : 'I dati stanno su OneDrive e in questo dispositivo. ',
     quando ? `Ultima copia esportata a mano: ${quando}.` : 'Qui puoi farne anche una copia a mano.');
 
@@ -1486,14 +1494,13 @@ const onedrive = (() => {
   let modifiche = 0;     // contatore: dice se durante l'invio è cambiato qualcosa
   let inAccesso = new URLSearchParams(location.search).has('code');   // di ritorno dal login
 
-  // Sul server interno i file passano dal server, e non c'è niente da collegare.
-  const configurato = () => SERVER_INTERNO || !!ONEDRIVE_CONFIG.clientId;
+  const configurato = () => DATI_IN_CARTELLA || !!ONEDRIVE_CONFIG.clientId;
   const leggi = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
   const scrivi = (k, v) => {
     try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (_) {}
   };
   const token = () => { try { return JSON.parse(leggi(CHIAVE_TOKEN)); } catch (_) { return null; } };
-  const collegato = () => SERVER_INTERNO || (configurato() && !!token());
+  const collegato = () => (DATI_IN_CARTELLA ? permessoCartella : configurato() && !!token());
   const indirizzo = () => location.origin + location.pathname;
 
   // ─────────────── accesso
@@ -1623,31 +1630,126 @@ const onedrive = (() => {
     return risposta;
   }
 
-  // Sul server interno: GET e PUT su api/file, con le stesse regole di OneDrive (eTag,
-  // If-Match per non sovrascrivere chi ha scritto nel frattempo).
-  const apiFile = percorso => `api/file?percorso=${encodeURIComponent(percorso)}`;
+  // ─────────────── la cartella condivisa
+  //
+  // Una cartella della rete (\\server\condivisa o un'unità mappata) scelta una volta con
+  // il browser: l'app ci legge e scrive pc_commesse.json e laser_servo_robot.json. Il
+  // permesso il browser lo ricorda per la cartella; a ogni nuova sessione può chiedere
+  // di confermarlo con un clic. Al posto dell'eTag di OneDrive c'è un'impronta del file
+  // (data di modifica, dimensione, contenuto): prima di scrivere si rilegge, e se è
+  // cambiato nel frattempo si rifà l'unione.
 
-  async function leggiFileServer(percorso) {
-    const r = await fetch(apiFile(percorso), { cache: 'no-store' });
-    if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`lettura di ${percorso} dal server: HTTP ${r.status}`);
-    return { testo: (await r.text()).replace(/^\uFEFF/, ''), eTag: r.headers.get('ETag') };
+  const cartellaSupportata = 'showDirectoryPicker' in window;
+  let cartella = null;
+  let permessoCartella = false;
+
+  function db() {
+    return new Promise((ok, no) => {
+      const r = indexedDB.open('rd-cartella', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('h');
+      r.onsuccess = () => ok(r.result);
+      r.onerror = () => no(r.error);
+    });
+  }
+  async function dbFai(modo, fn) {
+    const d = await db();
+    return new Promise((ok, no) => {
+      const t = d.transaction('h', modo);
+      const r = fn(t.objectStore('h'));
+      t.oncomplete = () => ok(r && r.result);
+      t.onerror = () => no(t.error);
+    });
+  }
+  const cartellaSalvata = () => dbFai('readonly', s => s.get('cartella')).catch(() => null);
+  const salvaCartella = h => dbFai('readwrite', s => (h ? s.put(h, 'cartella') : s.delete('cartella')));
+
+  async function permesso(h, chiedi) {
+    if (!h.queryPermission) return true;
+    const o = { mode: 'readwrite' };
+    if (await h.queryPermission(o) === 'granted') return true;
+    return chiedi ? (await h.requestPermission(o)) === 'granted' : false;
   }
 
-  async function scriviFileServer(percorso, testo, eTag) {
-    const r = await fetch(apiFile(percorso), {
-      method: 'PUT',
-      body: testo,
-      headers: { 'Content-Type': 'application/json', ...(eTag ? { 'If-Match': eTag } : { 'If-None-Match': '*' }) }
-    });
-    if (r.status === 412) return false;
-    if (!r.ok) throw new Error(`scrittura di ${percorso} sul server: HTTP ${r.status}`);
-    return r.headers.get('ETag') || true;
+  async function scegliCartella() {
+    const h = await window.showDirectoryPicker({ id: 'rd-dati', mode: 'readwrite' });
+    if (!await permesso(h, true)) throw new Error('il browser non ha dato il permesso di scrivere nella cartella');
+    await salvaCartella(h);
+    try { localStorage.setItem('rd.modo', 'cartella'); } catch (_) {}
+    // Si riparte: le schede e la sincronizzazione si preparano all'avvio.
+    location.reload();
+  }
+
+  async function riapriCartella() {
+    if (!cartella) return scegliCartella();
+    if (!await permesso(cartella, true)) throw new Error('il browser non ha dato il permesso per la cartella');
+    permessoCartella = true;
+    erroreTesto = '';
+    disegnaStatoDati();
+    sincronizza();
+  }
+
+  async function lasciaCartella() {
+    await salvaCartella(null).catch(() => {});
+    try { localStorage.removeItem('rd.modo'); } catch (_) {}
+    scrivi(CHIAVE_ATTESA, null);
+    scrivi(CHIAVE_ULTIMA, null);
+    location.reload();
+  }
+
+  function impronta(f, testo) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < testo.length; i++) { h ^= testo.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return `${f.lastModified}:${f.size}:${h.toString(16)}`;
+  }
+
+  const nomeInCartella = percorso => percorso.split('/').pop();
+
+  function perso(e) {
+    // Il permesso può scadere o la rete sparire: si torna alla schermata per riaprirla.
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+      permessoCartella = false;
+      return Object.assign(new Error('serve di nuovo il permesso per la cartella'), { daRicollegare: true });
+    }
+    return e;
+  }
+
+  async function leggiInCartella(nome) {
+    let fh;
+    try { fh = await cartella.getFileHandle(nome); } catch (e) {
+      if (e.name === 'NotFoundError') return null;
+      throw perso(e);
+    }
+    const f = await fh.getFile();
+    const testo = await f.text();
+    return { testo: testo.replace(/^\uFEFF/, ''), eTag: impronta(f, testo), fh };
+  }
+
+  async function leggiFileCartella(percorso) {
+    try {
+      const r = await leggiInCartella(nomeInCartella(percorso));
+      return r && { testo: r.testo, eTag: r.eTag };
+    } catch (e) { throw perso(e); }
+  }
+
+  async function scriviFileCartella(percorso, testo, eTag) {
+    const nome = nomeInCartella(percorso);
+    try {
+      const ora = await leggiInCartella(nome);
+      if (eTag ? !ora || ora.eTag !== eTag : !!ora) return false;   // cambiato nel frattempo
+      const fh = ora ? ora.fh : await cartella.getFileHandle(nome, { create: true });
+      // createWritable scrive su un file temporaneo e lo sostituisce solo alla chiusura:
+      // un file a metà non resta mai.
+      const w = await fh.createWritable();
+      await w.write(testo);
+      await w.close();
+      const f = await fh.getFile();
+      return impronta(f, await f.text());
+    } catch (e) { throw perso(e); }
   }
 
   /** Un file su OneDrive: { testo, eTag }, o null se non c'è. */
   async function leggiFile(percorso) {
-    if (SERVER_INTERNO) return leggiFileServer(percorso);
+    if (DATI_IN_CARTELLA) return leggiFileCartella(percorso);
     const r = await graph('GET', `/me/drive/root:/${percorsoUrl(percorso)}`);
     if (r.status === 404) return null;
     if (!r.ok) throw new Error(`lettura di ${percorso}: HTTP ${r.status}`);
@@ -1664,7 +1766,7 @@ const onedrive = (() => {
    * altro l'ha cambiato (o, senza eTag, se qualcuno l'ha appena creato).
    */
   async function scriviFile(percorso, testo, eTag) {
-    if (SERVER_INTERNO) return scriviFileServer(percorso, testo, eTag);
+    if (DATI_IN_CARTELLA) return scriviFileCartella(percorso, testo, eTag);
     const url = `/me/drive/root:/${percorsoUrl(percorso)}:/content` +
       (eTag ? '' : '?@microsoft.graph.conflictBehavior=fail');
     const r = await graph('PUT', url, {
@@ -1753,7 +1855,9 @@ const onedrive = (() => {
       disegnaStatoDati();
     } catch (e) {
       stato = navigator.onLine ? 'errore' : 'offline';
-      erroreTesto = e.daRicollegare ? 'Accesso scaduto: ricollega OneDrive.' : e.message;
+      erroreTesto = e.daRicollegare
+        ? (DATI_IN_CARTELLA ? 'Serve di nuovo il permesso per la cartella: riaprila.' : 'Accesso scaduto: ricollega OneDrive.')
+        : e.message;
       disegnaStatoDati();
     }
   }
@@ -1797,7 +1901,17 @@ const onedrive = (() => {
     document.body.classList.toggle('scollegato', !c);
     $('accesso').hidden = c;
     const accesso = $('accesso-testo');
-    if (!configurato()) {
+    $('od-cartella').hidden = DATI_IN_CARTELLA || !cartellaSupportata;
+    $('od-torna').hidden = !DATI_IN_CARTELLA;
+    $('accesso-titolo').textContent = DATI_IN_CARTELLA ? 'Cartella condivisa' : 'Collega OneDrive';
+    if (DATI_IN_CARTELLA) {
+      accesso.textContent = erroreTesto || (cartella
+        ? `Il browser chiede di confermare l'accesso alla cartella «${cartella.name}».`
+        : 'Scegli la cartella condivisa dove stanno i file dei PC e dei laser.');
+      accesso.className = erroreTesto ? 'errore-sinc' : '';
+      $('od-collega').textContent = cartella ? `Apri «${cartella.name}»` : 'Scegli la cartella';
+      $('od-collega').hidden = false;
+    } else if (!configurato()) {
       accesso.textContent = 'Manca l\'ID dell\'app Microsoft (ONEDRIVE_CONFIG nel codice).';
       accesso.className = 'errore-sinc';
       $('od-collega').hidden = true;
@@ -1824,8 +1938,7 @@ const onedrive = (() => {
       ? new Date(ultima).toLocaleString('it-IT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
       : null;
     const [testo, classe] = {
-      scollegato: ['OneDrive non collegato', 'errore-sinc'],
-      // (sul server interno non si è mai «scollegati»)
+      scollegato: [DATI_IN_CARTELLA ? 'Cartella non aperta' : 'OneDrive non collegato', 'errore-sinc'],
       sync: [stato === 'in-corso' ? 'Sincronizzazione in corso…' : 'Modifiche da inviare…', ''],
       errore: ['Sincronizzazione non riuscita: ' + erroreTesto, 'errore-sinc'],
       offline: ['Senza rete: le modifiche partiranno quando torna.', 'avviso'],
@@ -1835,7 +1948,7 @@ const onedrive = (() => {
     const bottone = $('od-icona');
     bottone.dataset.stato = icona;
     bottone.title = testo;
-    bottone.setAttribute('aria-label', (SERVER_INTERNO ? 'Server interno: ' : 'OneDrive: ') + testo);
+    bottone.setAttribute('aria-label', (DATI_IN_CARTELLA ? 'Cartella condivisa: ' : 'OneDrive: ') + testo);
 
     // Il pannello che si apre toccando l'icona.
     const box = $('stato-onedrive');
@@ -1847,26 +1960,35 @@ const onedrive = (() => {
       box.append(e);
     };
     riga(testo, 'riga-stato ' + classe);
-    riga(SERVER_INTERNO ? `Dati sul server interno (${location.host})` : `File: ${ONEDRIVE_CONFIG.percorso}`, 'file');
-    $('titolo-od').textContent = SERVER_INTERNO ? 'Server interno' : 'OneDrive';
-    $('od-scollega').hidden = SERVER_INTERNO;
+    riga(DATI_IN_CARTELLA ? `Cartella: ${cartella ? cartella.name : '—'}` : `File: ${ONEDRIVE_CONFIG.percorso}`, 'file');
+    $('titolo-od').textContent = DATI_IN_CARTELLA ? 'Cartella condivisa' : 'OneDrive';
+    $('od-scollega').textContent = DATI_IN_CARTELLA ? 'Lascia la cartella' : 'Scollega';
     $('od-sincronizza').disabled = stato === 'in-corso';
   }
 
   // ─────────────── avvio
 
   async function avvia() {
-    $('od-collega').addEventListener('click', () => collega().catch(e => mostraMessaggio(e.message)));
+    const apri = () => (DATI_IN_CARTELLA ? riapriCartella() : collega())
+      .catch(e => { if (e.name !== 'AbortError') mostraMessaggio(e.message); });
+    $('od-collega').addEventListener('click', apri);
+    $('od-cartella').addEventListener('click', () => scegliCartella()
+      .catch(e => { if (e.name !== 'AbortError') mostraMessaggio('Cartella non aperta: ' + e.message); }));
+    $('od-torna').addEventListener('click', () => {
+      if (confirm('Tornare a OneDrive? I file nella cartella condivisa restano dove sono.')) lasciaCartella();
+    });
     $('od-sincronizza').addEventListener('click', sincronizza);
     $('od-icona').addEventListener('click', () => {
       if (collegato()) $('pannello-od').showModal();
-      else collega().catch(e => mostraMessaggio(e.message));
+      else apri();
     });
     $('pannello-od').addEventListener('click', e => {
       if (e.target === $('pannello-od')) $('pannello-od').close();
     });
     $('od-scollega').addEventListener('click', () => {
-      if (confirm('Scollegare OneDrive da questo dispositivo? Il file su OneDrive resta.')) scollega();
+      if (DATI_IN_CARTELLA) {
+        if (confirm('Smettere di usare la cartella condivisa su questo PC? I file restano nella cartella.')) lasciaCartella();
+      } else if (confirm('Scollegare OneDrive da questo dispositivo? Il file su OneDrive resta.')) scollega();
     });
 
     window.addEventListener('online', sincronizza);
@@ -1877,9 +1999,13 @@ const onedrive = (() => {
       if (document.visibilityState === 'visible') sincronizza();
     });
 
+    if (DATI_IN_CARTELLA) {
+      cartella = await cartellaSalvata();
+      permessoCartella = !!cartella && await permesso(cartella, false).catch(() => false);
+    }
     disegnaStatoDati();
     try {
-      if (!SERVER_INTERNO) await completaAccesso();
+      if (!DATI_IN_CARTELLA) await completaAccesso();
     } catch (e) {
       erroreTesto = 'Accesso a OneDrive non riuscito: ' + e.message;
     }

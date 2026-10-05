@@ -1727,9 +1727,9 @@ const ore = (() => {
   const SCHEDE = { ore: 'Ore', laser: 'Laser Servo-Robot', pc: 'Gestione PC' };
 
   function mostraScheda(nome) {
-    // Sul server interno le ore non ci sono: sono personali e stanno con l'app del PC su
-    // OneDrive. Si va a Gestione PC.
-    if (!SCHEDE[nome] || (SERVER_INTERNO && nome === 'ore')) nome = SERVER_INTERNO ? 'pc' : 'ore';
+    // Con i dati nella cartella condivisa le ore non ci sono: sono personali e stanno con
+    // l'app del PC su OneDrive. Si va a Gestione PC.
+    if (!SCHEDE[nome] || (DATI_IN_CARTELLA && nome === 'ore')) nome = DATI_IN_CARTELLA ? 'pc' : 'ore';
     for (const n of Object.keys(SCHEDE)) document.body.classList.toggle('vista-' + n, nome === n);
     $('titolo').textContent = SCHEDE[nome];
     document.querySelectorAll('.schede button').forEach(b =>
@@ -1909,7 +1909,7 @@ const ore = (() => {
       }
     } catch (_) {}
 
-    if (SERVER_INTERNO) $('scheda-ore-btn').hidden = true;
+    if (DATI_IN_CARTELLA) $('scheda-ore-btn').hidden = true;
     else onedrive.registra(sincronizza);
     mostraScheda(leggi(CHIAVE_SCHEDA) || 'ore');
     vaiA(giorno);
