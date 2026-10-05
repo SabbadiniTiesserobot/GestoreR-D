@@ -1612,7 +1612,9 @@ const onedrive = (() => {
   function daRinnovare() {
     const t = token();
     if (!t) return !!leggi(CHIAVE_ACCOUNT);
-    return Date.now() - (t.dal || 0) > RINNOVO_SICURO;
+    // Un token salvato prima di questa versione non dice da quando corre: non si anticipa,
+    // si rientra in silenzio quando il rinnovo fallisce davvero.
+    return !!t.dal && Date.now() - t.dal > RINNOVO_SICURO;
   }
 
   async function chiediToken(parametri, { nuovo = false } = {}) {
