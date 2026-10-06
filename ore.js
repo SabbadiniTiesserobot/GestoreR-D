@@ -501,7 +501,8 @@ const ore = (() => {
   const colonnaDi = data => (suPc()
     ? document.querySelector(`.giorno-col[data-giorno="${data}"]`)
     : (data === giorno ? $('ore-slot') : null));
-  const rettDi = el => (el ? el.getBoundingClientRect() : null);
+  const rettDi = el => (el && el.getBoundingClientRect ? el.getBoundingClientRect() : el || null);
+  const schermo = () => ({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight });
 
   function effetto(tipo, trova, opzioni) { daGiocare.push({ tipo, trova, opzioni }); }
 
@@ -511,7 +512,8 @@ const ore = (() => {
     requestAnimationFrame(() => {
       for (const e of lista) {
         const r = rettDi(e.trova());
-        if (r && r.width) effetti.gioca(e.tipo, r, e.opzioni);
+        const op = e.opzioni && e.opzioni.da ? { ...e.opzioni, da: rettDi(e.opzioni.da()) || r } : e.opzioni;
+        if (r && r.width) effetti.gioca(e.tipo, r, op);
       }
     });
   }
@@ -551,13 +553,13 @@ const ore = (() => {
     statoAnno(anno).modifiche[data] = voci;
     cambiato(anno);
 
-    if (!eraPiena && minutiDi(data) === GIORNATA) {
-      effetto('giornata', () => colonnaDi(data));
-      avvisa('Giornata finita.');
-    }
+    // Le feste a tutto schermo: la settimana, se si è completata, copre la giornata.
     if (!eraSettimana && settimanaPiena(data)) {
-      effetto('settimana', () => (suPc()
-        ? document.querySelector(`.settimana[data-lunedi="${lunedi(data)}"]`) : $('ore-settimana')));
+      effetto('settimanaSchermo', schermo);
+      avvisa('Settimana completa.');
+    } else if (!eraPiena && minutiDi(data) === GIORNATA) {
+      effetto('giornataSchermo', schermo, { da: () => colonnaDi(data) });
+      avvisa('Giornata finita.');
     }
     return true;
   }
