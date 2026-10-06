@@ -15,7 +15,9 @@ const effetti = (() => {
 
   const DURATE = {
     scrivi: 300, cancella: 460, giornata: 600, settimana: 700,
-    misura: 140, copia: 400, incolla: 400, annulla: 600, rifai: 600
+    misura: 140, copia: 400, incolla: 400, annulla: 600, rifai: 600,
+    // Le due feste a tutto schermo: giornata e settimana completate.
+    giornataSchermo: 1300, settimanaSchermo: 1800
   };
 
   const FUOCO = ['#ffffff', '#ffe14d', '#ff9b21', '#e8461b', '#8b1a10'];
@@ -58,13 +60,17 @@ const effetti = (() => {
 
   function pulisci() { if (ctx) ctx.clearRect(0, 0, tela.width, tela.height); }
 
+  const inPixel = rett => ({
+    x: Math.floor(rett.left / PX), y: Math.floor(rett.top / PX),
+    w: Math.max(2, Math.round(rett.width / PX)), h: Math.max(2, Math.round(rett.height / PX))
+  });
+
   /** Un effetto sul rettangolo (coordinate dello schermo, come getBoundingClientRect). */
   function gioca(tipo, rett, opzioni = {}) {
     if (!acceso || !rett || !DURATE[tipo] || !prepara()) return;
-    const r = {
-      x: Math.floor(rett.left / PX), y: Math.floor(rett.top / PX),
-      w: Math.max(2, Math.round(rett.width / PX)), h: Math.max(2, Math.round(rett.height / PX))
-    };
+    const r = inPixel(rett);
+    // Le feste a tutto schermo partono da dove è successo (opzioni.da), ma occupano tutto.
+    if (opzioni.da) opzioni = { ...opzioni, da: inPixel(opzioni.da) };
     attivi.push({ tipo, r, inizio: performance.now(), n: Math.round(DURATE[tipo] / FOTOGRAMMA), op: opzioni });
     if (!giro) giro = requestAnimationFrame(passo);
   }
@@ -218,9 +224,70 @@ const effetti = (() => {
 
     // Annulla e rifai: il Cancello, in versi opposti. Annulla si chiude girando a
     // sinistra, rifai si apre girando a destra.
+    // Giornata completata, a tutto schermo: un lampo verde, anelli e diamanti che partono
+    // dalla giornata e invadono lo schermo, e la scritta.
+    giornataSchermo(r, i, n, op) {
+      const o = op.da ? centro(op.da) : centro(r);
+      const lontano = Math.hypot(Math.max(o.cx, r.w - o.cx), Math.max(o.cy, r.h - o.cy));
+      if (i < 4) { ctx.globalAlpha = 0.22 - i * 0.05; px(0, 0, VERDI[2], r.w, r.h); ctx.globalAlpha = 1; }
+      for (let k = 0; k < 4; k++) {
+        const t = (i - k * 4) / (n - 10);
+        if (t <= 0 || t > 1) continue;
+        anello(o.cx, o.cy, lontano * t, lontano * t, VERDI[(k + i) % VERDI.length], 2);
+      }
+      for (let k = 0; k < 28; k++) {
+        const a = (k / 28) * Math.PI * 2 + (k % 2) * 0.11;
+        const d = i * (2.2 + (k % 5) * 0.55);
+        if (d > lontano) continue;
+        diamante(o.cx + Math.cos(a) * d, o.cy + Math.sin(a) * d, 1 + (k % 3), VERDI[(k + i) % VERDI.length]);
+      }
+      if (i >= 3 && i < n - 2) scritta(r, i, 'GIORNATA FATTA!', '8,0 h', VERDI, i - 3);
+    },
+
+    // Settimana completata, a tutto schermo: il «line clear» di Tetris. I blocchi salgono
+    // dal fondo fino a riempire lo schermo, lampeggiano, e si sgombrano dal centro.
+    settimanaSchermo(r, i, n) {
+      const lato = 8;
+      const colonne = Math.ceil(r.w / lato), righe = Math.ceil(r.h / lato);
+      const salita = 14, lampo = 22;
+      const piene = Math.min(righe, Math.ceil((Math.min(i, salita) / salita) * righe));
+      const via = i < lampo ? -1 : ((i - lampo) / (n - lampo - 6)) * (colonne / 2 + 1);
+      ctx.globalAlpha = 0.88;
+      for (let rg = 0; rg < piene; rg++) {
+        const y = r.h - (rg + 1) * lato;
+        for (let c = 0; c < colonne; c++) {
+          if (Math.abs(c - (colonne - 1) / 2) < via) continue;
+          const bianca = i >= salita && i < lampo && (i + rg) % 2 === 0;
+          const col = bianca ? '#ffffff' : TETRAMINI[(c * 3 + rg * 5 + Math.floor(c / 4)) % TETRAMINI.length];
+          px(c * lato, y, col, lato - 1, lato - 1);
+          if (!bianca) px(c * lato, y, 'rgba(255,255,255,.35)', lato - 1, 1);
+        }
+      }
+      ctx.globalAlpha = 1;
+      if (i >= salita - 2) scritta(r, i, 'SETTIMANA COMPLETA!', '40,0 h', ['#ffffff', '#ffe14d', '#33d6e8', '#f08a2a'], i - salita + 2);
+    },
+
     annulla(r, i, n) { cancello(r, i, n, -1, CANCELLO_INDIETRO); },
     rifai(r, i, n) { cancello(r, i, n, 1, CANCELLO_AVANTI); }
   };
+
+  /** La scritta delle feste: entra ingrandendosi, con l'ombra e i colori che ciclano. */
+  function scritta(r, i, titolo, sotto, tavolozza, t) {
+    const cx = Math.round(r.w / 2), cy = Math.round(r.h / 2);
+    const piena = Math.max(8, Math.min(Math.floor(r.w / (titolo.length * 0.68)), 30));
+    const grande = Math.round(piena * Math.min(1, 0.4 + t * 0.2));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    px(0, cy - grande, 'rgba(10,12,16,.55)', r.w, grande * 2 + Math.round(grande * 0.9));
+    ctx.font = `bold ${grande}px "IBM Plex Mono", ui-monospace, monospace`;
+    ctx.fillStyle = '#0d1014';
+    ctx.fillText(titolo, cx + 1, cy + 1);
+    ctx.fillStyle = tavolozza[i % tavolozza.length];
+    ctx.fillText(titolo, cx, cy);
+    ctx.font = `bold ${Math.round(grande * 0.55)}px "IBM Plex Mono", ui-monospace, monospace`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(sotto, cx, cy + Math.round(grande * 1.05));
+  }
 
   function cancello(r, i, n, verso, tavolozza) {
     const { cx, cy } = centro(r);
