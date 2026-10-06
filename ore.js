@@ -528,6 +528,22 @@ const ore = (() => {
   };
   const settimanaPiena = data => settimanaDi(data).every(d => minutiDi(d) === GIORNATA);
 
+  // Il mese è quello della targa: le 25 giornate della griglia. Una giornata a cavallo
+  // può stare in due griglie (fine settembre è anche nella griglia di ottobre): conta
+  // quella che si completa.
+  function mesiCon(data) {
+    const d = daData(data.slice(0, 7) + '-01');
+    const out = [];
+    for (const passo of [-1, 0, 1]) {
+      const x = new Date(d.getFullYear(), d.getMonth() + passo, 1);
+      const m = aData(x).slice(0, 7);
+      if (giorniGriglia(m).includes(data)) out.push(m);
+    }
+    return out;
+  }
+  const meseCompleto = m => giorniGriglia(m).every(d => minutiDi(d) === GIORNATA);
+  const mesiCompleti = data => mesiCon(data).filter(meseCompleto);
+
   /** Un passo della storia: le giornate com'erano prima e dopo. */
   function applicaPasso(giorni, quale) {
     for (const p of giorni) {
@@ -545,6 +561,7 @@ const ore = (() => {
 
     const eraPiena = minutiGiorno(g) === GIORNATA;
     const eraSettimana = settimanaPiena(data);
+    const eranoMesi = mesiCompleti(data);
     if (registra) {
       storia.push([{ anno, data, prima, dopo: voci }]);
       if (storia.length > PASSI_STORIA) storia.shift();
@@ -553,8 +570,11 @@ const ore = (() => {
     statoAnno(anno).modifiche[data] = voci;
     cambiato(anno);
 
-    // Le feste a tutto schermo: la settimana, se si è completata, copre la giornata.
-    if (!eraSettimana && settimanaPiena(data)) {
+    // Le feste a tutto schermo, una sola: il mese copre la settimana, che copre la giornata.
+    if (mesiCompleti(data).some(m => !eranoMesi.includes(m))) {
+      effetto('meseSchermo', schermo);
+      avvisa('Mese completo!');
+    } else if (!eraSettimana && settimanaPiena(data)) {
       effetto('settimanaSchermo', schermo);
       avvisa('Settimana completa.');
     } else if (!eraPiena && minutiDi(data) === GIORNATA) {

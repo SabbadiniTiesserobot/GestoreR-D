@@ -17,13 +17,15 @@ const effetti = (() => {
     scrivi: 300, cancella: 460, giornata: 600, settimana: 700,
     misura: 140, copia: 400, incolla: 400, annulla: 600, rifai: 600,
     // Le due feste a tutto schermo: giornata e settimana completate.
-    giornataSchermo: 1300, settimanaSchermo: 1800
+    giornataSchermo: 1300, settimanaSchermo: 1800, meseSchermo: 2600
   };
 
   const FUOCO = ['#ffffff', '#ffe14d', '#ff9b21', '#e8461b', '#8b1a10'];
   const MATTONE = ['#c46a3e', '#8e4325'];
   const VERDI = ['#e9ffe0', '#7bf06a', '#2fbf3a', '#137a2a'];
   const TETRAMINI = ['#33d6e8', '#f2d22e', '#a64fe0', '#46d04a', '#e8423a', '#3a62e8', '#f08a2a'];
+  const FUOCHI = [['#fff3b0', '#ffd23f', '#f6a21a', '#c46a10'], ['#ffd0f0', '#ff6fc8', '#d6308f'],
+    ['#c9f7ff', '#33d6e8', '#1a7ec4'], ['#e9ffe0', '#7bf06a', '#2fbf3a'], ['#efe0ff', '#a64fe0', '#6f2bb0']];
   const CLONE = ['#ffffff', '#9fefff', '#3fc8f0', '#1a7ec4'];
   const TELE = ['#ffffff', '#ffe9a8', '#f6b93b', '#c97a12'];
   const CANCELLO_INDIETRO = ['#ffffff', '#b9a8ff', '#6f4bff', '#2a1a8a', '#43e0ff'];
@@ -265,6 +267,45 @@ const effetti = (() => {
       }
       ctx.globalAlpha = 1;
       if (i >= salita - 2) scritta(r, i, 'SETTIMANA COMPLETA!', '40,0 h', ['#ffffff', '#ffe14d', '#33d6e8', '#f08a2a'], i - salita + 2);
+    },
+
+    // Mese completato, a tutto schermo: fuochi d'artificio. Razzi che salgono dal fondo
+    // e scoppiano in pixel che ricadono, uno dopo l'altro, e la scritta.
+    meseSchermo(r, i, n) {
+      const razzi = 9;
+      for (let k = 0; k < razzi; k++) {
+        const parte = k * 6;                       // ogni razzo parte sei fotogrammi dopo
+        const t = i - parte;
+        if (t < 0 || t > 40) continue;
+        // Posizioni fisse ma sparse: niente casuale, così ogni volta è uguale.
+        const x = r.w * (0.12 + ((k * 0.37) % 0.76));
+        const alto = r.h * (0.18 + ((k * 0.23) % 0.32));
+        const tav = FUOCHI[k % FUOCHI.length];
+        const salita = 9;
+        if (t < salita) {
+          const y = r.h - (r.h - alto) * (t / salita);
+          px(x, y, '#ffffff', 1, 3);
+          px(x, y + 3, tav[2], 1, 3);
+          continue;
+        }
+        const e = t - salita;                       // fotogrammi dallo scoppio
+        if (e < 2) { ctx.globalAlpha = 0.18; px(0, 0, tav[0], r.w, r.h); ctx.globalAlpha = 1; }
+        // Lo scoppio si misura sullo schermo: grande sul PC, comunque pieno sul telefono.
+        const raggio = Math.min(e, 14) * Math.max(2.6, Math.min(r.w, r.h) / 55);
+        const scintille = 36;
+        for (let q = 0; q < scintille; q++) {
+          const a = (q / scintille) * Math.PI * 2 + k;
+          const caduta = e > 8 ? (e - 8) * (e - 8) * 0.08 : 0;
+          const xx = x + Math.cos(a) * raggio * (0.8 + (q % 3) * 0.15);
+          const yy = alto + Math.sin(a) * raggio * 0.85 + caduta;
+          if (e > 26 && (q + e) % 3 === 0) continue;   // le ultime scintille si spengono a scatti
+          const lato = e < 10 ? 3 : e < 20 ? 2 : 1;
+          px(xx, yy, tav[Math.min(tav.length - 1, Math.floor(e / 7))], lato, lato);
+          // La scia verso il centro, nei primi fotogrammi.
+          if (e < 8) px(x + (xx - x) * 0.7, alto + (yy - alto) * 0.7, tav[0], 1, 1);
+        }
+      }
+      if (i >= 8 && i < n - 2) scritta(r, i, 'MESE COMPLETO!', '200,0 h', ['#ffd23f', '#ffffff', '#ff6fc8', '#33d6e8'], i - 8);
     },
 
     annulla(r, i, n) { cancello(r, i, n, -1, CANCELLO_INDIETRO); },
