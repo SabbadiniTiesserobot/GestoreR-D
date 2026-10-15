@@ -382,6 +382,8 @@ th.c-foto { text-align: center; }
    continui, senza la riga bianca. L'altezza delle righe non cambia, le colonne restano
    allineate. */
 .ora.dentro .metà { margin-top: -1px; }
+/* La seconda mezz'ora che continua la prima (un'ora divisa apposta) non ha la riga. */
+.cella + .cella.continua { border-top: 0; }
 .ora .quando {
   width: 54px; flex: none; padding: 8px 0 0 10px; font-size: 12px; color: var(--faint);
   font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;

@@ -1081,14 +1081,12 @@ const ore = (() => {
       const primo = indice, ultimo = indice + sessione.length - 1;
       for (; indice <= ultimo; indice++) {
         const h = righe[indice];
-        const prec = indice > primo ? righe[indice - 1] : null;
-        // Le ore di fila con la stessa voce sono un blocco: le righe dentro il blocco
-        // non ripetono il nome, e la prima dice l'intervallo.
-        const continua = prec && h.meta[0] && !h.diviso && !prec.diviso && prec.meta[0] === h.meta[0];
-        let fine = indice;
-        while (h.meta[0] && !h.diviso && fine < ultimo && !righe[fine + 1].diviso && righe[fine + 1].meta[0] === h.meta[0]) fine++;
-
-        const riga = el('div', 'ora' + (continua ? ' dentro' : ''));
+        // Un blocco è la corsa di mezz'ore di fila con la stessa voce, anche se comincia o
+        // finisce a metà di un'ora: le celle dentro il blocco non ripetono il nome e non
+        // hanno la riga di separazione; la prima dice il nome e l'intervallo.
+        const inizioSessione = 2 * primo;
+        const continuaDa = m => m > inizioSessione && H[m] && H[m - 1] === H[m];
+        const riga = el('div', 'ora' + (continuaDa(2 * indice) ? ' dentro' : ''));
         riga.append(el('div', 'quando', testoOra(h.inizio)));
         const metà = el('div', 'metà');
         for (const k of h.diviso ? [0, 1] : [null]) {
@@ -1107,18 +1105,22 @@ const ore = (() => {
           if (spenta(c)) cella.classList.add('spenta');
           if (scelta && scelta.data === data && scelta.ora === indice && (scelta.meta ?? null) === k) cella.classList.add('scelta');
 
-          const da = h.inizio + 30 * (k || 0);
-          const a = h.diviso ? da + 30 : righe[fine].inizio + 60;
+          const mezze = metàDiCella(h, indice, k);
+          const continua = !!c && continuaDa(mezze[0]);
+          if (continua && k === 1) cella.classList.add('continua');
+          const run = c ? corsa(H, mezze[0]) : null;
+          const da = run ? inizioMetà(run.a) : h.inizio + 30 * (k || 0);
+          const a = run ? inizioMetà(run.b) + 30 : da + (h.diviso ? 30 : 60);
           if (c && !continua) {
             cella.append(el('span', 'nome', etichettaDi(info, c)));
-            if (!compatto && (h.diviso || fine > indice)) cella.append(el('span', 'intervallo', `${testoOra(da)}–${testoOra(a)}`));
+            if (!compatto && (h.diviso || run.b > mezze[mezze.length - 1])) cella.append(el('span', 'intervallo', `${testoOra(da)}–${testoOra(a)}`));
             const t = el('span', 'tot', fmt(totali.get(c)));
             cella.append(t);
             cella.title = `${etichettaDi(info, c)} · ${testoOra(da)}–${testoOra(a)} · ${fmt(totali.get(c))} h in tutta la giornata`;
           } else if (!c) {
             cella.append(el('span', 'nome', compatto ? '' : (h.diviso ? `${testoOra(da)} vuota` : 'vuota')));
           } else {
-            cella.title = `${etichettaDi(info, c)} · ${fmt(totali.get(c))} h in tutta la giornata`;
+            cella.title = `${etichettaDi(info, c)} · ${testoOra(da)}–${testoOra(a)} · ${fmt(totali.get(c))} h in tutta la giornata`;
           }
 
           // La presa per allungare: al centro del bordo inferiore, sull'ultima cella del blocco.
