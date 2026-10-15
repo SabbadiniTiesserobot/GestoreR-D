@@ -1091,7 +1091,7 @@ const ore = (() => {
         const metà = el('div', 'metà');
         for (const k of h.diviso ? [0, 1] : [null]) {
           const c = h.meta[k || 0];
-          const cella = el('div', 'cella' + (c ? '' : ' vuota'));
+          const cella = el('div', 'cella' + (c ? '' : ' vuota') + (h.diviso ? ' mezza' : ''));
           cella.dataset.data = data;
           cella.dataset.ora = String(indice);
           cella.dataset.meta = k == null ? '' : String(k);
@@ -1111,7 +1111,15 @@ const ore = (() => {
           const run = c ? corsa(H, mezze[0]) : null;
           const da = run ? inizioMetà(run.a) : h.inizio + 30 * (k || 0);
           const a = run ? inizioMetà(run.b) + 30 : da + (h.diviso ? 30 : 60);
-          if (c && !continua) {
+          // Dove va il nome del blocco: sulla prima cella, ma nella griglia del PC (dove una
+          // mezz'ora è alta pochi pixel) sulla prima ora intera del blocco, se c'è.
+          let doveNome = run ? run.a : -1;
+          if (run && compatto && righe[run.a >> 1].diviso) {
+            for (let m = run.a; m < run.b; m++) {
+              if (m % 2 === 0 && !righe[m >> 1].diviso) { doveNome = m; break; }
+            }
+          }
+          if (c && mezze[0] === doveNome) {
             cella.append(el('span', 'nome', etichettaDi(info, c)));
             if (!compatto && (h.diviso || run.b > mezze[mezze.length - 1])) cella.append(el('span', 'intervallo', `${testoOra(da)}–${testoOra(a)}`));
             const t = el('span', 'tot', fmt(totali.get(c)));

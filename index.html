@@ -504,8 +504,7 @@ body.ore-pc .mese-barra button.icona { width: 34px; }
 /* Nelle mezz'ore della griglia (alte pochi pixel) la presa è solo un filo sul bordo, così
    il centro della cella resta per il clic e per spostare il blocco. */
 .mese-griglia .metà .cella .presa { height: 3px; }
-.mese-griglia .metà .cella { font-size: min(11px, calc(var(--ora) * .6)); line-height: 1; }
-.mese-griglia .metà .cella .tot { font-size: inherit; }
+
 .giorno-col { min-width: 0; border-radius: 8px; }
 .giorno-testa {
   width: 100%; height: 22px; display: flex; align-items: center; gap: 6px; padding: 0 6px;
@@ -525,6 +524,11 @@ body.ore-pc .mese-barra button.icona { width: 34px; }
 .mese-griglia .cella { font-size: 12px; padding: 0 6px; gap: 4px; line-height: 1.1; }
 .mese-griglia .cella .tot { font-size: 11px; }
 .mese-griglia .metà .cella { font-size: 11px; }
+/* Le mezz'ore della griglia sono alte metà riga: il testo si adatta e non esce. */
+.mese-griglia .cella.mezza {
+  font-size: max(6px, min(11px, calc(var(--ora) * .45))); line-height: 1; padding-top: 0; padding-bottom: 0;
+}
+.mese-griglia .cella.mezza .tot { font-size: inherit; }
 .mese-griglia .cella.scelta { outline-width: 2px; border-radius: 3px; }
 .accorpata {
   height: calc(var(--ora) * 8 + 12px); display: flex; flex-direction: column; overflow: hidden;
