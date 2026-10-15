@@ -299,14 +299,25 @@ const ore = (() => {
 
   // Un'ora vuota divisa in due non ha niente da scrivere nel file: resta divisa solo
   // sullo schermo, finché non ci si mette una voce.
+  //
+  // Un'ora resta divisa solo se lo si è chiesto («½ ora», Ctrl+D): le ore divise apposta
+  // stanno in «divise». Altrimenti due mezz'ore con la stessa voce sono un'ora intera,
+  // sullo schermo e nel file (una voce da 60 invece di due da 30): un blocco spostato
+  // o incollato a cavallo di un'ora divisa non resta spezzato in mezz'ore.
   const divise = new Set();
+
+  function unisciMetàUguali(data, ore) {
+    return ore.map((h, i) => {
+      const k = `${data}|${i}`;
+      if (h.diviso && h.meta[0] && h.meta[0] === h.meta[1] && !divise.has(k)) return { ...h, diviso: false };
+      if (!h.diviso && !h.meta[0] && divise.has(k)) return { ...h, diviso: true };
+      return h;
+    });
+  }
+
   function grigliaDi(data, g) {
     const r = griglia(g);
-    r.ore.forEach((h, i) => {
-      const k = `${data}|${i}`;
-      if (h.diviso) divise.delete(k);
-      else if (!h.meta[0] && divise.has(k)) h.diviso = true;
-    });
+    r.ore = unisciMetàUguali(data, r.ore);
     return r;
   }
 
@@ -477,7 +488,7 @@ const ore = (() => {
   function righeDi(data) {
     const { info, g } = infoGiorno(data);
     const r = grigliaDi(data, g);
-    if (anteprima && anteprima.data === data) r.ore = daMetà(r.ore, anteprima.H);
+    if (anteprima && anteprima.data === data) r.ore = unisciMetàUguali(data, daMetà(r.ore, anteprima.H));
     return { ...r, info, g };
   }
 
@@ -590,13 +601,10 @@ const ore = (() => {
     if (!info || info.solaLettura) return false;
     const r = grigliaDi(data, g);
     if (!r.modificabile) return false;
-    const nuove = fn(r.ore);
+    let nuove = fn(r.ore);
     if (!nuove) return false;
-    nuove.forEach((h, i) => {
-      const k = `${data}|${i}`;
-      if (h.diviso && !h.meta[0] && !h.meta[1]) divise.add(k);
-      else divise.delete(k);
-    });
+    nuove = unisciMetàUguali(data, nuove);
+    nuove.forEach((h, i) => { if (!h.diviso) divise.delete(`${data}|${i}`); });
     cambiaGiornata(data, vociDa(nuove));
     return true;
   }
@@ -616,6 +624,11 @@ const ore = (() => {
   }
 
   function dividi(slot) {
+    // Dividere è una scelta: l'ora resta divisa anche con le due metà uguali, finché non
+    // si riunisce.
+    const k = `${slot.data}|${slot.ora}`;
+    if (righeDi(slot.data).ore[slot.ora].diviso) divise.delete(k);
+    else divise.add(k);
     modificaRighe(slot.data, ore => ore.map((h, i) => {
       if (i !== slot.ora) return h;
       if (!h.diviso) return { ...h, diviso: true };
@@ -1432,7 +1445,7 @@ const ore = (() => {
   // pressione lunga. Esc lo annulla.
 
   let gesto = null;
-  let ignoraFino = 0;   // dopo un trascinamento, il clic che lo chiude non conta
+  let ignoraFino = 0;   // dopo un trascinamento, il clic che lo chiude (subito dopo) non conta
 
   function metàDaCella(cella, y) {
     const data = cella.dataset.data, i = Number(cella.dataset.ora);
@@ -1537,6 +1550,7 @@ const ore = (() => {
       if (fine === gesto.fine) return;
       const tacche = Math.abs(fine - gesto.fine);
       gesto.fine = fine;
+      gesto.mosso = true;
       const H = metàDi(grigliaDi(gesto.data, infoGiorno(gesto.data).g).ore);
       anteprima = { data: gesto.data, H: allunga(H, gesto.corsa, fine) };
       disegna();
@@ -1554,13 +1568,15 @@ const ore = (() => {
     $('ore-fantasma').hidden = true;
 
     if (g.tipo === 'allunga') {
-      ignoraFino = performance.now() + 400;
+      // Un clic sulla presa senza muoversi è un clic qualsiasi: sceglie lo slot.
+      if (!g.mosso) { anteprima = null; return; }
+      ignoraFino = performance.now() + 60;
       const H = anteprima && anteprima.H;
       anteprima = null;
       if (H) scriviMetà(g.data, H);
       disegna();
     } else if (g.tipo === 'sposta') {
-      ignoraFino = performance.now() + 400;
+      ignoraFino = performance.now() + 60;
       if (!g.dest) return;
       const lunghezza = g.corsa.b - g.corsa.a + 1;
       const H = metàDi(righeDi(g.dest.data).ore);
