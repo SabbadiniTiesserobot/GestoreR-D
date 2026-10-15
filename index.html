@@ -378,6 +378,10 @@ th.c-foto { text-align: center; }
 .ora { display: flex; height: var(--ora, 52px); border-top: 1px solid var(--border); }
 .ora:first-child { border-top: 0; }
 .ora.dentro { border-top-color: transparent; }
+/* Dentro un blocco la cella copre anche il filo fra un'ora e l'altra: sfondo e filetto
+   continui, senza la riga bianca. L'altezza delle righe non cambia, le colonne restano
+   allineate. */
+.ora.dentro .metà { margin-top: -1px; }
 .ora .quando {
   width: 54px; flex: none; padding: 8px 0 0 10px; font-size: 12px; color: var(--faint);
   font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Consolas, monospace;
@@ -495,6 +499,9 @@ body.ore-pc header { padding-top: calc(6px + env(safe-area-inset-top)); padding-
 body.ore-pc .mese-barra button { height: 34px; padding-top: 0; padding-bottom: 0; }
 body.ore-pc .mese-barra button.icona { width: 34px; }
 .mese-griglia .presa { height: 5px; }
+/* Nelle mezz'ore della griglia (alte pochi pixel) la presa è solo un filo sul bordo, così
+   il centro della cella resta per il clic e per spostare il blocco. */
+.mese-griglia .metà .cella .presa { height: 3px; }
 .mese-griglia .metà .cella { font-size: min(11px, calc(var(--ora) * .6)); line-height: 1; }
 .mese-griglia .metà .cella .tot { font-size: inherit; }
 .giorno-col { min-width: 0; border-radius: 8px; }
