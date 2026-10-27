@@ -412,6 +412,14 @@ const pcCommesse = (() => {
     altro.title = 'Tutti i campi: consegna, stornata, elimina';
     altro.setAttribute('aria-label', `Apri la scheda del PC ${p.commesse}`);
     altro.addEventListener('click', () => apri(p.id));
+    const copia = el('button', 'pc-altro pc-copia');
+    copia.type = 'button';
+    copia.title = 'Copia la riga per Excel';
+    copia.setAttribute('aria-label', `Copia per Excel il PC ${p.commesse}`);
+    copia.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="10" rx="2"/><path d="M13.5 4.5v-.5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 4v7A1.5 1.5 0 0 0 5 12.5h.5"/></svg>';
+    copia.addEventListener('click', () => copiaPerExcel(p));
+    const azioni = el('div', 'pc-azioni');
+    azioni.append(copia, altro);
 
     r.append(
       cella(p, 'commesse', 'pc-commesse mono', 'commessa', v => v.replace(/\s*\+\s*/g, ' + ')),
@@ -421,8 +429,51 @@ const pcCommesse = (() => {
       cellaElenco(p, 'lingue', { lista: 'pc-lingue-usate', nome: 'lingua', vuoto: 'Italiano', classe: 'pc-lingue' }),
       cella(p, 'hardware', 'pc-hardware', 'hardware'),
       cella(p, 'note', 'pc-note', 'note'),
-      altro);
+      azioni);
     return r;
+  }
+
+  // ─────────────── copiare un PC per il foglio Excel
+  //
+  // La riga va negli appunti come testo separato da tabulazioni, che Excel incolla cella
+  // per cella, con le colonne del foglio di prima: commessa, cliente, software, stato,
+  // due colonne vuote, note, hardware, consegna («luglio 2026»). Come nel foglio, un PC
+  // con più software prende una riga in più per ognuno, con solo il software. Le lingue,
+  // che il foglio non aveva, finiscono nelle note.
+
+  const cellaTsv = v => {
+    const t = testo(v);
+    return /[\t\n\r"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+
+  function righeExcel(p) {
+    const note = [p.note];
+    if (p.lingue.length) note.push(`Lingue: ${p.lingue.join(', ')}`);
+    if (p.stornata && !/stornat/i.test(p.note)) note.push('COMMESSA STORNATA');
+    const consegna = p.consegna ? nomeMese(p.consegna).toLocaleLowerCase('it') : '';
+    const [primo, ...altri] = p.software.length ? p.software : [''];
+    const righe = [[p.commesse, p.cliente, primo, p.stato, '', '', note.filter(Boolean).join(' · '), p.hardware, consegna]];
+    for (const s of altri) righe.push(['', '', s, '', '', '', '', '', '']);
+    return righe.map(r => r.map(cellaTsv).join('\t')).join('\r\n');
+  }
+
+  async function copiaPerExcel(p) {
+    const tsv = righeExcel(p);
+    try {
+      await navigator.clipboard.writeText(tsv);
+    } catch (_) {
+      // Senza permesso per gli appunti: un'area di testo nascosta e il vecchio «copia».
+      const t = el('textarea');
+      t.value = tsv;
+      t.style.position = 'fixed';
+      t.style.opacity = '0';
+      document.body.append(t);
+      t.select();
+      const ok = document.execCommand('copy');
+      t.remove();
+      if (!ok) { mostraMessaggio('Copia non riuscita: il browser non lascia scrivere negli appunti.'); return; }
+    }
+    mostraMessaggio(`Copiato il PC ${p.commesse || p.cliente}: in Excel clicca la cella della commessa e incolla (Ctrl+V).`);
   }
 
   // ─────────────── la scheda di un PC
@@ -482,12 +533,18 @@ const pcCommesse = (() => {
     dc.replaceChildren(...usati('cliente').map(h => { const o = el('option'); o.value = h; return o; }));
 
     $('pcf-elimina').hidden = !p;
+    $('pcf-copia').hidden = !p;
     $('pcf-errore').textContent = '';
     $('scheda-pc').showModal();
     if (!p) $('pcf-commesse').focus();
   }
 
   function chiudi() { $('scheda-pc').close(); aperto = null; }
+
+  function copiaDallaScheda() {
+    const p = aperto && dati.pc.find(x => x.id === aperto);
+    if (p) copiaPerExcel(p);
+  }
 
   function aggiungiAltraLingua() {
     const t = testo($('pcf-altra-lingua').value);
@@ -662,6 +719,7 @@ const pcCommesse = (() => {
     $('modulo-pc').addEventListener('submit', salvaScheda);
     $('pcf-annulla').addEventListener('click', chiudi);
     $('pcf-elimina').addEventListener('click', elimina);
+    $('pcf-copia').addEventListener('click', copiaDallaScheda);
     $('pcf-aggiungi-sw').addEventListener('click', aggiungiAltro);
     $('pcf-altro').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); aggiungiAltro(); } });
     $('pcf-aggiungi-lingua').addEventListener('click', aggiungiAltraLingua);
