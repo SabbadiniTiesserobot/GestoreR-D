@@ -446,31 +446,74 @@ const pcCommesse = (() => {
     return /[\t\n\r"]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
 
-  function righeExcel(p) {
+  /** I valori delle colonne del foglio, e i software (uno per riga). */
+  function colonneExcel(p) {
     const note = [p.note];
     if (p.lingue.length) note.push(`Lingue: ${p.lingue.join(', ')}`);
     if (p.stornata && !/stornat/i.test(p.note)) note.push('COMMESSA STORNATA');
-    const consegna = p.consegna ? nomeMese(p.consegna).toLocaleLowerCase('it') : '';
-    const [primo, ...altri] = p.software.length ? p.software : [''];
-    const righe = [[p.commesse, p.cliente, primo, p.stato, '', '', note.filter(Boolean).join(' · '), p.hardware, consegna]];
+    return {
+      commesse: p.commesse, cliente: p.cliente, stato: p.stato,
+      note: note.filter(Boolean).join(' · '), hardware: p.hardware,
+      consegna: p.consegna ? nomeMese(p.consegna).toLocaleLowerCase('it') : '',
+      software: p.software.length ? p.software : ['']
+    };
+  }
+
+  function righeExcel(p) {
+    const c = colonneExcel(p);
+    const [primo, ...altri] = c.software;
+    const righe = [[c.commesse, c.cliente, primo, c.stato, '', '', c.note, c.hardware, c.consegna]];
     for (const s of altri) righe.push(['', '', s, '', '', '', '', '', '']);
     return righe.map(r => r.map(cellaTsv).join('\t')).join('\r\n');
   }
 
+  // La stessa riga come tabella HTML, che Excel incolla con la formattazione del foglio:
+  // le celle unite sulle righe del software, i bordi sottili, il testo centrato e a capo,
+  // le note a sinistra, il giallo sugli stati ancora aperti, le stornate in grigio.
+  const html = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const testoCella = t => html(t).replace(/\r?\n/g, '<br style="mso-data-placement:same-cell">');
+
+  function tabellaExcel(p) {
+    const c = colonneExcel(p);
+    const n = c.software.length;
+    const colore = p.stornata ? 'color:#A6A6A6;' : 'color:#000000;';
+    const base = `border:.5pt solid windowtext;vertical-align:middle;white-space:normal;font-family:Arial,sans-serif;font-size:10pt;${colore}`;
+    const td = (testo, { unite = true, allinea = 'center', sfondo = '' } = {}) =>
+      `<td${unite && n > 1 ? ` rowspan="${n}"` : ''} style="${base}text-align:${allinea};${sfondo ? `background:${sfondo};` : ''}">${testoCella(testo)}</td>`;
+    const giallo = classeStato(p.stato) === 'aperto' && !p.stornata ? '#FFFFCC' : '';
+    const prima = [
+      td(c.commesse), td(c.cliente), td(c.software[0], { unite: false }), td(c.stato, { sfondo: giallo }),
+      td(''), td(''), td(c.note, { allinea: 'left' }), td(c.hardware), td(c.consegna)
+    ].join('');
+    const altre = c.software.slice(1).map(s => `<tr>${td(s, { unite: false })}</tr>`).join('');
+    return '<html><head><meta charset="utf-8"></head><body>' +
+      `<table style="border-collapse:collapse"><tr>${prima}</tr>${altre}</table></body></html>`;
+  }
+
   async function copiaPerExcel(p) {
     const tsv = righeExcel(p);
+    const tabella = tabellaExcel(p);
     try {
-      await navigator.clipboard.writeText(tsv);
+      // Tutte e due le forme: Excel prende la tabella, un editor di testo le tabulazioni.
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([tabella], { type: 'text/html' }),
+        'text/plain': new Blob([tsv], { type: 'text/plain' })
+      })]);
     } catch (_) {
-      // Senza permesso per gli appunti: un'area di testo nascosta e il vecchio «copia».
-      const t = el('textarea');
-      t.value = tsv;
-      t.style.position = 'fixed';
-      t.style.opacity = '0';
-      document.body.append(t);
-      t.select();
+      // Senza ClipboardItem o senza permesso: la tabella si disegna fuori schermo, si
+      // seleziona e si copia col vecchio «copia», che porta anche la formattazione.
+      const box = el('div');
+      box.style.cssText = 'position:fixed;left:-10000px;top:0;';
+      box.innerHTML = tabella.replace(/^.*<body>|<\/body>.*$/g, '');
+      document.body.append(box);
+      const r = document.createRange();
+      r.selectNodeContents(box);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
       const ok = document.execCommand('copy');
-      t.remove();
+      sel.removeAllRanges();
+      box.remove();
       if (!ok) { mostraMessaggio('Copia non riuscita: il browser non lascia scrivere negli appunti.'); return; }
     }
     mostraMessaggio(`Copiato il PC ${p.commesse || p.cliente}: in Excel clicca la cella della commessa e incolla (Ctrl+V).`);
